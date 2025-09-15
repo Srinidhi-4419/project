@@ -1,0 +1,415 @@
+{
+  "document_metadata": [
+    {
+      "type": "table_schema",
+      "table_name": "float_table",
+      "row_count": 2,
+      "columns": [
+        "platform_number",
+        "project_name",
+        "wmo_inst_type",
+        "positioning_system",
+        "created_at",
+        "updated_at"
+      ],
+      "keywords": [
+        "project",
+        "wmo",
+        "float info",
+        "basic"
+      ],
+      "query_types": [
+        "project queries",
+        "basic float info",
+        "WMO lookups"
+      ]
+    },
+    {
+      "type": "table_schema",
+      "table_name": "meta_table",
+      "row_count": 2,
+      "columns": [
+        "meta_id",
+        "platform_number",
+        "data_type",
+        "format_version",
+        "handbook_version",
+        "date_creation",
+        "date_update",
+        "ptt",
+        "trans_system",
+        "trans_system_id",
+        "trans_frequency",
+        "positioning_system",
+        "platform_family",
+        "platform_type",
+        "platform_maker",
+        "firmware_version",
+        "manual_version",
+        "float_serial_no",
+        "dac_format_id",
+        "wmo_inst_type",
+        "project_name",
+        "data_centre",
+        "pi_name",
+        "anomaly",
+        "battery_type",
+        "battery_packs",
+        "controller_board_type_primary",
+        "controller_board_type_secondary",
+        "serial_no_primary",
+        "serial_no_secondary",
+        "special_features",
+        "float_owner",
+        "operating_institution",
+        "customisation",
+        "launch_date",
+        "launch_latitude",
+        "launch_longitude",
+        "launch_qc",
+        "start_date",
+        "start_date_qc",
+        "startup_date",
+        "startup_date_qc",
+        "end_mission_date",
+        "end_mission_status",
+        "created_at",
+        "updated_at"
+      ],
+      "keywords": [
+        "platform type",
+        "PI",
+        "manufacturer",
+        "launch",
+        "deployment",
+        "specifications"
+      ],
+      "query_types": [
+        "platform type",
+        "manufacturer",
+        "PI queries",
+        "deployment info"
+      ]
+    },
+    {
+      "type": "table_schema",
+      "table_name": "profile_table",
+      "row_count": 207,
+      "columns": [
+        "profile_id",
+        "platform_number",
+        "cycle_number",
+        "juld",
+        "juld_qc",
+        "latitude",
+        "longitude",
+        "position_qc",
+        "direction",
+        "data_mode",
+        "vertical_sampling_scheme",
+        "config_mission_number",
+        "profile_pres_qc",
+        "profile_temp_qc",
+        "profile_psal_qc",
+        "created_at"
+      ],
+      "keywords": [
+        "location",
+        "position",
+        "where",
+        "region",
+        "current",
+        "coordinates"
+      ],
+      "query_types": [
+        "location queries",
+        "regional analysis",
+        "where is float"
+      ]
+    },
+    {
+      "type": "table_schema",
+      "table_name": "depth_measurements_table",
+      "row_count": 16350,
+      "columns": [
+        "measurement_id",
+        "profile_id",
+        "platform_number",
+        "cycle_number",
+        "latitude",
+        "longitude",
+        "pres",
+        "pres_qc",
+        "pres_adjusted",
+        "pres_adjusted_qc",
+        "pres_adjusted_error",
+        "temp",
+        "temp_qc",
+        "temp_adjusted",
+        "temp_adjusted_qc",
+        "temp_adjusted_error",
+        "psal",
+        "psal_qc",
+        "psal_adjusted",
+        "psal_adjusted_qc",
+        "psal_adjusted_error",
+        "doxy",
+        "doxy_qc",
+        "doxy_adjusted",
+        "doxy_adjusted_qc",
+        "doxy_adjusted_error",
+        "nitrate",
+        "nitrate_qc",
+        "nitrate_adjusted",
+        "nitrate_adjusted_qc",
+        "nitrate_adjusted_error",
+        "ph_in_situ_total",
+        "ph_in_situ_total_qc",
+        "ph_in_situ_total_adjusted",
+        "ph_in_situ_total_adjusted_qc",
+        "ph_in_situ_total_adjusted_error",
+        "created_at"
+      ],
+      "keywords": [
+        "temperature",
+        "salinity",
+        "pressure",
+        "oxygen",
+        "nitrate",
+        "pH",
+        "measurements",
+        "profile"
+      ],
+      "query_types": [
+        "scientific data",
+        "profiles",
+        "measurements",
+        "averages"
+      ]
+    },
+    {
+      "type": "table_schema",
+      "table_name": "trajectory_table",
+      "row_count": 468,
+      "columns": [
+        "trajectory_id",
+        "platform_number",
+        "cycle_number",
+        "juld_first_location",
+        "juld_qc",
+        "first_latitude",
+        "first_longitude",
+        "position_qc",
+        "positioning_system",
+        "data_mode",
+        "created_at",
+        "juld_last_location",
+        "juld_first_message",
+        "juld_last_message",
+        "juld_ascent_start",
+        "juld_ascent_end",
+        "juld_descent_start",
+        "juld_descent_end",
+        "juld_park_start",
+        "juld_park_end",
+        "juld_transmission_start",
+        "juld_transmission_end",
+        "juld_first_location_status",
+        "juld_last_location_status",
+        "juld_first_message_status",
+        "juld_last_message_status",
+        "updated_at",
+        "last_latitude",
+        "last_longitude",
+        "config_mission_number",
+        "grounded",
+        "representative_park_pressure",
+        "representative_park_pressure_status",
+        "cycle_number_adjusted"
+      ],
+      "keywords": [
+        "trajectory",
+        "movement",
+        "surface",
+        "drift",
+        "path"
+      ],
+      "query_types": [
+        "trajectory",
+        "movement",
+        "surface data"
+      ]
+    },
+    {
+      "type": "table_schema",
+      "table_name": "sensor_table",
+      "row_count": 5,
+      "columns": [
+        "sensor_id",
+        "platform_number",
+        "sensor",
+        "sensor_maker",
+        "sensor_model",
+        "sensor_serial_no",
+        "created_at",
+        "updated_at"
+      ],
+      "keywords": [
+        "sensor",
+        "instrument",
+        "CTD",
+        "optode",
+        "equipment"
+      ],
+      "query_types": [
+        "sensor queries",
+        "instrumentation",
+        "what sensors"
+      ]
+    },
+    {
+      "type": "data_pattern",
+      "pattern_name": "platform_distribution",
+      "floats": [
+        "13859",
+        "1900122"
+      ]
+    },
+    {
+      "type": "data_pattern",
+      "pattern_name": "geographic_coverage",
+      "lat_range": [
+        -6.875,
+        5.928
+      ],
+      "lon_range": [
+        -33.677,
+        86.874
+      ]
+    },
+    {
+      "type": "data_pattern",
+      "pattern_name": "parameter_availability",
+      "parameters": [
+        "temp",
+        "psal",
+        "doxy",
+        "nitrate",
+        "ph_in_situ_total"
+      ]
+    },
+    {
+      "type": "query_pattern",
+      "pattern_name": "Platform Specification Queries",
+      "primary_table": "meta_table",
+      "keywords": [
+        "platform type",
+        "PI",
+        "manufacturer",
+        "deployed",
+        "launched",
+        "specifications"
+      ],
+      "examples": [
+        "What is the platform type of float 13859?",
+        "Who is the PI of float 1900122?",
+        "What manufacturer made float 13859?",
+        "When was float 1900122 deployed?",
+        "Where was float 13859 launched?"
+      ]
+    },
+    {
+      "type": "query_pattern",
+      "pattern_name": "Current Location Queries",
+      "primary_table": "profile_table",
+      "keywords": [
+        "where",
+        "location",
+        "position",
+        "current",
+        "now",
+        "latest"
+      ],
+      "examples": [
+        "Where is float 13859 now?",
+        "Current position of float 1900122",
+        "Latest location of all floats",
+        "Show me float positions"
+      ]
+    },
+    {
+      "type": "query_pattern",
+      "pattern_name": "Scientific Measurement Queries",
+      "primary_table": "depth_measurements_table",
+      "keywords": [
+        "temperature",
+        "salinity",
+        "pressure",
+        "oxygen",
+        "measurements",
+        "profile",
+        "average",
+        "depth"
+      ],
+      "examples": [
+        "Average temperature for float 13859",
+        "Salinity profile for float 1900122",
+        "Temperature vs pressure for all floats",
+        "Show oxygen levels for float 13859",
+        "Maximum depth reached by float 1900122"
+      ]
+    },
+    {
+      "type": "query_pattern",
+      "pattern_name": "Regional Analysis Queries",
+      "primary_table": "profile_table",
+      "keywords": [
+        "region",
+        "ocean",
+        "Atlantic",
+        "Pacific",
+        "Indian",
+        "equator",
+        "tropical",
+        "basin"
+      ],
+      "examples": [
+        "Floats in the Indian Ocean",
+        "How many floats are in the North Atlantic?",
+        "Show floats near the equator",
+        "Temperature data from tropical regions"
+      ]
+    },
+    {
+      "type": "query_pattern",
+      "pattern_name": "Sensor and Instrumentation Queries",
+      "primary_table": "sensor_table",
+      "keywords": [
+        "sensor",
+        "instrument",
+        "CTD",
+        "optode",
+        "hardware",
+        "equipment"
+      ],
+      "examples": [
+        "What sensors are on float 13859?",
+        "CTD manufacturer for float 1900122",
+        "List all sensor types",
+        "Show instrumentation for all floats"
+      ]
+    }
+  ],
+  "embedding_model": "all-MiniLM-L6-v2",
+  "dimension": 384,
+  "total_documents": 14,
+  "created_at": "2025-09-15T14:49:23.556476",
+  "database_tables": [
+    "float_table",
+    "meta_table",
+    "profile_table",
+    "depth_measurements_table",
+    "trajectory_table",
+    "sensor_table"
+  ]
+}

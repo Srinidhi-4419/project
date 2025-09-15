@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Enhanced Argo Float Dashboard - Fixed Version
+Enhanced Argo Float Dashboard - With RAG Integration
 """
 import logging
 import streamlit as st
@@ -18,9 +18,9 @@ import os
 import re
 from typing import Dict, Any, List, Tuple, Optional
 
-# Import your backend and file processor
+# Import your RAG system
 try:
-    from client import ArgoQueryClient, format_response
+    from test_rag import EnhancedArgoRAGSystem  # Your RAG system
     from process import process_argo_file
     from graphgenerator import ArgoGraphGenerator
 except ImportError as e:
@@ -28,11 +28,10 @@ except ImportError as e:
     st.stop()
 
 class EnhancedArgoStreamlitDashboard:
-    """Enhanced Streamlit dashboard - fixed version"""
+    """Enhanced Streamlit dashboard with RAG integration"""
 
     def __init__(self):
         self.setup_page_config()
-        self.client = self.initialize_backend()
         self.graph_generator = ArgoGraphGenerator(self.get_database_connection)
 
     def setup_page_config(self):
@@ -132,17 +131,8 @@ class EnhancedArgoStreamlitDashboard:
         </style>
         """, unsafe_allow_html=True)
 
-    def initialize_backend(self):
-        """Initialize backend client"""
-        PERPLEXITY_API_KEY = "UR KEY"
-        try:
-            return ArgoQueryClient(PERPLEXITY_API_KEY)
-        except Exception as e:
-            st.error(f"Backend initialization failed: {e}")
-            return None
-
     def get_database_connection(self):
-        """Get database connection for graph generator"""
+        """Get database connection"""
         try:
             conn = psycopg2.connect(
                 host="localhost",
@@ -291,150 +281,256 @@ class EnhancedArgoStreamlitDashboard:
         else:
             st.warning("No position data available for mapping")
 
+    # In your dashboard, replace the existing graph generator:
+    # In your dashboard, replace the existing graph generator:
     def render_graph_generator(self):
-        """Render graph generator section"""
-        st.markdown("""
-        <div class="graph-container">
-            <h2 style="color: #e67e22; margin-bottom: 1rem;">📊 Natural Language Graph Generator</h2>
-            <p style="color: #6c757d; margin-bottom: 1.5rem;">
-                Create professional oceanographic charts using simple natural language descriptions
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("### 💬 Graph Request")
-
-        col1, col2 = st.columns([4, 1])
-
-        with col1:
-            custom_request = st.text_input(
-                "Describe the graph you want:",
-                placeholder="e.g., scatter plot of temp vs salinity for float 1900122",
-                label_visibility="collapsed"
+        """Render RAG-enhanced graph generator"""
+        st.markdown("### 📊 RAG-Enhanced Graph Generator")
+        
+        user_request = st.text_input(
+            "Describe the graph you want:",
+            placeholder="e.g., scatter plot of temperature vs salinity for float 1900122",
+        )
+        
+        if st.button("📊 Generate Graph") and user_request:
+            # Use your existing RAG system + new plotting logic
+            rag_graph_generator = EnhancedArgoRAGSystem(
+                rag_system=st.session_state.rag_system,  # Your existing RAG system
+                db_connection_func=self.get_database_connection
             )
+            
+            rag_graph_generator.generate_graph(user_request)
 
-        with col2:
-            if st.button("📊 Generate", use_container_width=True):
-                graph_request = custom_request
 
-        if 'graph_request' in locals() and graph_request:
-            st.markdown("---")
-            self.graph_generator.generate_graph(graph_request)
-
-        with st.expander("💡 Graph Request Examples", expanded=False):
-            st.markdown("""
-            **Profile Plots:**
-            - `temperature vs pressure for float 13859`
-            - `salinity vs depth for float 1900122`
-            - `pressure profile for float 13859`
-
-            **Time Series:**
-            - `surface temperature over time`
-            - `temp vs date`
-
-            **Analysis:**
-            - `scatter plot of temp vs salinity for float 1900122`
-            - `histogram of temperature`
-            - `temp vs pressure below 500 dbar`
-
-            **Supported Variables:**
-            - Temperature: `temp`, `temperature`
-            - Salinity: `sal`, `salinity` 
-            - Pressure/Depth: `press`, `pressure`, `depth`
-            - Time: `time`, `date`
-            """)
 
     def render_enhanced_ai_chat(self):
-        """Render enhanced AI chat interface"""
+        """Render enhanced AI chat interface with RAG integration"""
         st.markdown("""
         <div class="chat-container">
-            <h2 style="color: #1f77b4; margin-bottom: 1rem;">🤖 AI Assistant</h2>
+            <h2 style="color: #1f77b4; margin-bottom: 1rem;">🤖 Enhanced RAG AI Assistant</h2>
             <p style="color: #6c757d; margin-bottom: 1.5rem;">
-                Ask questions about your Argo float data using natural language. 
-                The AI will generate SQL queries and provide direct answers.
+                The AI uses advanced thinking-based analysis and generates sophisticated SQL queries.
             </p>
         </div>
         """, unsafe_allow_html=True)
 
+        # Initialize RAG system if not already done
+        if 'rag_system' not in st.session_state:
+            with st.spinner("🔄 Initializing Enhanced RAG System..."):
+                try:
+                    PERPLEXITY_API_KEY = "UR KEY"
+                    st.session_state.rag_system = EnhancedArgoRAGSystem(perplexity_api_key=PERPLEXITY_API_KEY)
+                    st.success("✅ Enhanced RAG System initialized!")
+                except Exception as e:
+                    st.error(f"❌ Failed to initialize RAG system: {e}")
+                    st.session_state.rag_system = None
+
+        # Initialize chat history with simplified welcome message
         if 'chat_history' not in st.session_state:
             st.session_state.chat_history = [
                 {
                     'role': 'ai', 
-                    'content': '👋 Welcome! I can help you explore your oceanographic data. Try asking: "What is the platform type of float 1900122?" or "How many floats are there?"'
+                    'content': """👋 **Welcome to the Enhanced RAG Assistant!**
+
+    I can help you with both technical database queries and general oceanographic knowledge
+
+    📚 **General Knowledge:**
+    • "What is the Argo program?"
+    • "How do Argo floats work?"
+    • "Tell me about ocean temperature inversions" """
                 }
             ]
 
+        # Query classification indicator
+        if 'last_query_type' in st.session_state:
+            query_type = st.session_state.last_query_type
+            if query_type == 'technical':
+                st.info("🔬 **Last Query Type:** Technical (Database Analysis)")
+            elif query_type == 'general':
+                st.info("📚 **Last Query Type:** General Knowledge")
+
+        # Chat history display with enhanced formatting
         chat_container = st.container()
         with chat_container:
-            for message in st.session_state.chat_history:
+            for i, message in enumerate(st.session_state.chat_history):
                 if message['role'] == 'user':
                     st.markdown(f"""
                     <div class="chat-message-user">
-                        <strong>You:</strong> {message['content']}
+                        <strong>🧑‍💻 You:</strong> {message['content']}
                     </div>
                     """, unsafe_allow_html=True)
                 else:
                     st.markdown(f"""
                     <div class="chat-message-ai">
-                        <strong>🤖 AI Assistant:</strong><br>{message['content']}
+                        <strong>🤖 Enhanced RAG Assistant:</strong><br>{message['content']}
                     </div>
                     """, unsafe_allow_html=True)
 
+                    # Show SQL query if available
                     if 'sql' in message:
-                        with st.expander("🔍 View Generated SQL Query", expanded=False):
+                        with st.expander("💻 Generated SQL Query", expanded=False):
                             st.code(message['sql'], language='sql')
 
-        st.markdown("### 💬 Ask a Question")
+                    # Show thinking process if available
+                    if 'thinking_process' in message and st.session_state.get('show_thinking', False):
+                        with st.expander("🧠 AI Thinking Process", expanded=False):
+                            st.text(message['thinking_process'])
 
+                    # Show processing info if available
+                    if 'processing_info' in message:
+                        st.caption(f"📊 {message['processing_info']}")
+
+        # Enhanced input section
+        st.markdown("### 💬 Ask Your Question")
+
+        # Toggle for showing thinking process
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            show_thinking = st.checkbox("🧠 Show AI thinking process", value=False)
+            st.session_state.show_thinking = show_thinking
+        
+        with col2:
+            if st.button("🗑️ Clear Chat"):
+                st.session_state.chat_history = st.session_state.chat_history[:1]  # Keep welcome message
+                if 'last_query_type' in st.session_state:
+                    del st.session_state.last_query_type
+                st.rerun()
+
+        # Quick suggestion buttons
+        st.markdown("**Quick Suggestions:**")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("🌡️ Temperature Inversions", use_container_width=True):
+                st.session_state.suggested_query = "Find temperature inversions where deeper water is warmer than surface water"
+        
+        with col2:
+            if st.button("🧂 Halocline Detection", use_container_width=True):
+                st.session_state.suggested_query = "Detect haloclines where salinity gradient exceeds 0.2 PSU per 50 meters"
+        
+        with col3:
+            if st.button("🌊 Warm Core Eddies", use_container_width=True):
+                st.session_state.suggested_query = "Locate warm core eddies by finding profiles with temperature >2°C above regional average"
+        
+        with col4:
+            if st.button("❓ About Argo", use_container_width=True):
+                st.session_state.suggested_query = "What is the Argo program and how does it work?"
+
+        # Main input area
         col1, col2 = st.columns([4, 1])
 
         with col1:
+            # Use suggested query if available
+            default_query = st.session_state.get('suggested_query', '')
             user_query = st.text_input(
                 "Your question:",
-                placeholder="e.g., What is the platform type of float 13859?",
+                value=default_query,
+                placeholder="e.g., Find density inversions using sigma-0 calculations where deeper water is less dense than surface water",
                 label_visibility="collapsed"
             )
+            # Clear suggested query after use
+            if 'suggested_query' in st.session_state:
+                del st.session_state.suggested_query
 
         with col2:
-            send_button = st.button("🚀 Send", use_container_width=True)
+            send_button = st.button("🚀 Send", use_container_width=True, type="primary")
 
+        # Process query
         if send_button and user_query:
-            graph_keywords = ['graph', 'plot', 'chart', 'vs', 'versus', 'histogram', 'scatter']
-            if any(keyword in user_query.lower() for keyword in graph_keywords):
-                st.session_state.chat_history.append({'role': 'user', 'content': user_query})
+            # Add user message
+            st.session_state.chat_history.append({'role': 'user', 'content': user_query})
 
-                st.session_state.chat_history.append({
-                    'role': 'ai', 
-                    'content': f"I'll generate a graph for you: {user_query}"
-                })
-
-                st.rerun()
-
-                with st.spinner("🔄 Generating graph..."):
-                    self.graph_generator.generate_graph(user_query)
-
-            else:
-                st.session_state.chat_history.append({'role': 'user', 'content': user_query})
-
-                if self.client:
-                    with st.spinner("🔄 Processing your query..."):
-                        try:
-                            result = self.client.process_query(user_query)
-                            response = format_response(result)
-
-                            ai_message = {'role': 'ai', 'content': response}
-                            if result.get('sql_query'):
+            if st.session_state.rag_system:
+                with st.spinner("🔄 Processing with Enhanced RAG System..."):
+                    try:
+                        # Process query using RAG system
+                        result = st.session_state.rag_system.process_enhanced_query(
+                            user_query, 
+                            show_details=show_thinking
+                        )
+                        
+                        # Store query type for display
+                        st.session_state.last_query_type = result.get('query_type', 'unknown')
+                        
+                        if result['success']:
+                            # Format response using RAG system
+                            formatted_response = st.session_state.rag_system.format_detailed_response(
+                                result, 
+                                result['query_type']
+                            )
+                            
+                            # Create AI message
+                            ai_message = {
+                                'role': 'ai', 
+                                'content': formatted_response
+                            }
+                            
+                            # Add SQL query if technical query
+                            if result['query_type'] == 'technical' and 'sql_query' in result:
                                 ai_message['sql'] = result['sql_query']
-
+                            
+                            # Add thinking process if available and requested
+                            if show_thinking and 'thinking_process' in result:
+                                ai_message['thinking_process'] = result['thinking_process']
+                            
+                            # Add processing info
+                            if result['query_type'] == 'technical':
+                                context_docs = result.get('context_documents', 0)
+                                row_count = result.get('row_count', 0)
+                                method = result.get('method', 'RAG + Database')
+                                ai_message['processing_info'] = f"{method} | {row_count} results | {context_docs} context docs"
+                            else:
+                                method = result.get('method', 'Knowledge Base')
+                                ai_message['processing_info'] = f"{method}"
+                            
                             st.session_state.chat_history.append(ai_message)
-                            st.rerun()
+                            
+                            # Show success metrics
+                            if result['query_type'] == 'technical':
+                                st.success(f"✅ Query processed successfully! Found {result.get('row_count', 0)} results using {context_docs} context documents.")
+                            else:
+                                st.success(f"✅ Knowledge query processed successfully using {method}!")
+                            
+                        else:
+                            # Handle failed queries
+                            error_message = f"❌ Sorry, I encountered an error: {result.get('error', 'Unknown error')}"
+                            
+                            ai_message = {
+                                'role': 'ai', 
+                                'content': error_message
+                            }
+                            
+                            # Add failed SQL if available
+                            if 'sql_query' in result:
+                                ai_message['sql'] = result['sql_query']
+                            
+                            # Add thinking process for debugging
+                            if show_thinking and 'thinking_process' in result:
+                                ai_message['thinking_process'] = result['thinking_process']
+                            
+                            st.session_state.chat_history.append(ai_message)
+                            st.error("Query failed. Check the SQL query and thinking process for debugging.")
+                        
+                        st.rerun()
+                        
+                    except Exception as e:
+                        error_message = f"❌ System error: {str(e)}"
+                        st.session_state.chat_history.append({'role': 'ai', 'content': error_message})
+                        st.error(f"System error: {e}")
+                        st.rerun()
+            else:
+                st.error("❌ Enhanced RAG system not available. Please check initialization.")
 
-                        except Exception as e:
-                            error_message = f"❌ Sorry, I encountered an error: {str(e)}"
-                            st.session_state.chat_history.append({'role': 'ai', 'content': error_message})
-                            st.rerun()
+        # Performance metrics (optional)
+        if st.session_state.get('show_thinking', False):
+            with st.expander("📊 System Performance", expanded=False):
+                if 'rag_system' in st.session_state and st.session_state.rag_system:
+                    st.success("✅ Enhanced RAG System: Active")
+                    st.info("📡 Perplexity API: Connected")
+                    st.info("🗄️ Database: Connected")
+                    st.info("🧠 Thinking Mode: Enabled")
                 else:
-                    st.error("AI backend not available")
+                    st.error("❌ Enhanced RAG System: Inactive")
 
     def detect_file_type(self, filename):
         """Detect Argo file type from filename"""
@@ -538,6 +634,7 @@ class EnhancedArgoStreamlitDashboard:
                 st.session_state.processing_history = []
                 st.rerun()
 
+
     def process_uploaded_file(self, uploaded_file):
         """Process uploaded file with proper file handling"""
         temp_filepath = None
@@ -616,10 +713,8 @@ class EnhancedArgoStreamlitDashboard:
                     import time
                     time.sleep(0.1)
                     os.unlink(temp_filepath)
-                    logger.info(f"Cleaned up temporary file: {temp_filepath}")
                 except Exception as cleanup_error:
-                    logger.warning(f"Could not clean up temp file {temp_filepath}: {cleanup_error}")
-
+                    pass
 
     def render_profile_plots(self):
         """Render temperature/salinity profiles"""
@@ -713,6 +808,12 @@ class EnhancedArgoStreamlitDashboard:
                 st.sidebar.error("❌ Database Connection Failed")
         except:
             st.sidebar.error("❌ Database Connection Failed")
+
+        # RAG system status
+        if 'rag_system' in st.session_state and st.session_state.rag_system:
+            st.sidebar.success("✅ RAG System Active")
+        else:
+            st.sidebar.warning("⚠️ RAG System Not Initialized")
 
         st.sidebar.markdown("### 🔧 Data Management")
 

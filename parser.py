@@ -123,50 +123,144 @@ class UltimateArgoNetCDFParser:
             return None
         except:
             return None
+    def clean_timestamp_value(self, timestamp_value):
+        """Clean timestamp values before database insertion"""
+        if timestamp_value is None:
+            return None
+        
+        # Handle string representations of NaT
+        if isinstance(timestamp_value, str):
+            if timestamp_value.lower() in ['nat', 'nan', 'none', '']:
+                return None
+            # Check for 'NaT' string specifically
+            if timestamp_value == 'NaT':
+                return None
+        
+        # Handle pandas NaT
+        try:
+            import pandas as pd
+            if pd.isna(timestamp_value):
+                return None
+        except:
+            pass
+        
+        return timestamp_value
 
+    
     def enhanced_julian_to_datetime(self, julian_date):
         """Convert Julian date to datetime with better error handling"""
         import numpy as np
         from datetime import datetime
         import pandas as pd
-    
+
         if julian_date is None:
-             return None
-    
+            return None
+
         try:
-        # Check if it's already a datetime string
-            if isinstance(julian_date, str):
-            # Parse ISO datetime string
-                return pd.to_datetime(julian_date).to_pydatetime()
-        
-        # Check if it's a numpy datetime64
+            # Handle different input types
+            if isinstance(julian_date, (bytes, np.bytes_)):
+                # Decode bytes first
+                decoded_val = julian_date.decode('utf-8', errors='ignore').strip()
+                
+                # Check if it's a status code (like '2', '4') instead of Julian date
+                if decoded_val.isdigit() and len(decoded_val) <= 2:
+                    # Change to DEBUG to reduce spam
+                    logger.debug(f"Skipping status code as Julian date: {decoded_val}")
+                    return None
+                    
+                # Try to convert to float
+                try:
+                    julian_date = float(decoded_val)
+                except ValueError:
+                    logger.debug(f"Cannot convert decoded value to float: {decoded_val}")
+                    return None
+            
+            # Handle string inputs
+            elif isinstance(julian_date, str):
+                if julian_date.lower() in ['nat', 'nan', '', 'none']:
+                    return None
+                # Check if it's a status code
+                if julian_date.isdigit() and len(julian_date) <= 2:
+                    logger.debug(f"Skipping status code as Julian date: {julian_date}")
+                    return None
+                
+                # Check if it's already a datetime string
+                if '-' in julian_date and ('T' in julian_date or ' ' in julian_date):
+                    return pd.to_datetime(julian_date).to_pydatetime()
+                
+                try:
+                    julian_date = float(julian_date)
+                except ValueError:
+                    return None
+            
+            # Handle numpy arrays
+            elif isinstance(julian_date, np.ndarray):
+                if julian_date.size == 1:
+                    julian_date = julian_date.item()
+                else:
+                    return None
+            
+            # Check if it's a numpy datetime64
             if hasattr(julian_date, 'dtype') and 'datetime' in str(julian_date.dtype):
                 return pd.to_datetime(julian_date).to_pydatetime()
-        
-        # Handle NaN values
-            if np.isnan(julian_date):
+            
+            # Handle pandas NaT and numpy nan
+            if pd.isna(julian_date):
                 return None
-        
-        # Handle actual Julian dates (numeric values)
+                
+            # Check for NaN values (numeric)
+            if isinstance(julian_date, (int, float)) and np.isnan(julian_date):
+                return None
+            
+            # Handle actual Julian dates (numeric values)
             if isinstance(julian_date, (int, float)):
                 if 10000 <= julian_date <= 50000:  # Days since 1950-01-01
                     from datetime import timedelta
                     reference_date = datetime(1950, 1, 1)
                     return reference_date + timedelta(days=float(julian_date))
                 else:
-                    logger.warning(f"Julian date outside expected range: {julian_date}")
+                    logger.debug(f"Julian date outside expected range: {julian_date}")
                     return None
-        
-        # Try to convert whatever it is to datetime
-            return pd.to_datetime(julian_date).to_pydatetime()
             
+            # Try to convert whatever it is to datetime
+            return pd.to_datetime(julian_date).to_pydatetime()
+                
         except Exception as e:
-            logger.warning(f"Failed to convert Julian date {julian_date}: {e}")
+            logger.debug(f"Failed to convert Julian date {julian_date}: {e}")
             return None
 
 
 
 
+
+    def safe_get_measurement_var(self, ds, var_name, meas_idx, default=None):
+        """Safely extract measurement-level variable with better handling"""
+        if var_name not in ds:
+            return default
+        
+        try:
+            var_values = ds[var_name].values
+            if var_values.ndim == 0:
+                raw_val = var_values.item()
+            elif meas_idx < len(var_values):
+                raw_val = var_values[meas_idx]
+            else:
+                return default
+            
+            # Handle JULD variables specially
+            if 'JULD' in var_name:
+                return self.enhanced_julian_to_datetime(raw_val)
+            elif isinstance(default, str):
+                decoded = self.safe_decode(raw_val)
+                if decoded and decoded.lower() in ['nan', 'nat', '']:
+                    return None
+                return decoded
+            else:
+                return self.safe_float(raw_val)
+                
+        except Exception as e:
+            logger.warning(f"Error extracting {var_name}[{meas_idx}]: {e}")
+            return default
     def detect_file_type(self, filepath):
         """Detect if file is profile, meta, or trajectory"""
         filename = filepath.lower()
@@ -1000,94 +1094,132 @@ class UltimateArgoNetCDFParser:
 
 
     def insert_trajectory_depth_data(self, traj_depth_data):
-        """Insert into trajectory_depth_table - Updated for new schema"""
-        if not traj_depth_data:
-            return
+            """Insert into trajectory_depth_table - Updated with timestamp cleaning"""
+            if not traj_depth_data:
+                return
 
-        conn = self.connect_postgres()
-        cursor = conn.cursor()
+            conn = self.connect_postgres()
+            cursor = conn.cursor()
 
-        try:
-            trajectory_depth_values = []
-            for traj_depth in traj_depth_data:
-                trajectory_depth_values.append((
-                    traj_depth['trajectory_id'],
-                    traj_depth['platform_number'],
-                    traj_depth['cycle_number'],
-                    traj_depth['latitude'],
-                    traj_depth['longitude'],
-                    traj_depth['juld'],
-                    traj_depth['pres'],
-                    traj_depth['pres_qc'],
-                    traj_depth.get('pres_adjusted'),
-                    traj_depth.get('pres_adjusted_qc', '0'),
-                    traj_depth.get('pres_adjusted_error'),
-                    traj_depth['temp'],
-                    traj_depth['temp_qc'],
-                    traj_depth.get('temp_adjusted'),
-                    traj_depth.get('temp_adjusted_qc', '0'),
-                    traj_depth.get('temp_adjusted_error'),
-                    traj_depth['psal'],
-                    traj_depth['psal_qc'],
-                    traj_depth.get('psal_adjusted'),
-                    traj_depth.get('psal_adjusted_qc', '0'),
-                    traj_depth.get('psal_adjusted_error'),
-                    traj_depth.get('doxy'),
-                    traj_depth.get('doxy_qc', '0'),
-                    traj_depth.get('chla'),
-                    traj_depth.get('chla_qc', '0'),
-                    traj_depth.get('bbp700'),
-                    traj_depth.get('bbp700_qc', '0'),
-                    traj_depth.get('nitrate'),
-                    traj_depth.get('nitrate_qc', '0'),
-                    traj_depth.get('ph_in_situ_total'),
-                    traj_depth.get('ph_in_situ_total_qc', '0')
-                ))
+            try:
+                trajectory_depth_values = []
+                for traj_depth in traj_depth_data:
+                    # Double-clean timestamp values
+                    juld_val = self.clean_timestamp_value(traj_depth.get('juld'))
+                    juld_adjusted_val = self.clean_timestamp_value(traj_depth.get('juld_adjusted'))
+                    
+                    trajectory_depth_values.append((
+                        traj_depth.get('trajectory_id'),
+                        traj_depth['platform_number'],
+                        traj_depth['cycle_number'],
+                        # Measurement identification
+                        traj_depth.get('measurement_code'),
+                        traj_depth.get('measurement_index'),
+                        # Position and time - DOUBLE CLEANED
+                        traj_depth.get('latitude'),
+                        traj_depth.get('longitude'),
+                        juld_val,  # ✅ DOUBLE CLEANED
+                        traj_depth.get('juld_status'),
+                        juld_adjusted_val,  # ✅ DOUBLE CLEANED
+                        traj_depth.get('juld_adjusted_qc'),
+                        traj_depth.get('juld_adjusted_status'),
+                        # Position details
+                        traj_depth.get('position_accuracy'),
+                        traj_depth.get('axes_error_ellipse_major'),
+                        traj_depth.get('axes_error_ellipse_minor'),
+                        traj_depth.get('axes_error_ellipse_angle'),
+                        traj_depth.get('satellite_name'),
+                        traj_depth.get('positioning_system'),
+                        traj_depth.get('position_qc'),
+                        # Measurements
+                        traj_depth.get('pres'),
+                        traj_depth.get('pres_qc'),
+                        traj_depth.get('pres_adjusted'),
+                        traj_depth.get('pres_adjusted_qc'),
+                        traj_depth.get('pres_adjusted_error'),
+                        traj_depth.get('temp'),
+                        traj_depth.get('temp_qc'),
+                        traj_depth.get('temp_adjusted'),
+                        traj_depth.get('temp_adjusted_qc'),
+                        traj_depth.get('temp_adjusted_error'),
+                        traj_depth.get('psal'),
+                        traj_depth.get('psal_qc'),
+                        traj_depth.get('psal_adjusted'),
+                        traj_depth.get('psal_adjusted_qc'),
+                        traj_depth.get('psal_adjusted_error')
+                    ))
 
-            sql = """
-            INSERT INTO trajectory_depth_table (
-                trajectory_id, platform_number, cycle_number, latitude, longitude, juld,
-                pres, pres_qc, pres_adjusted, pres_adjusted_qc, pres_adjusted_error,
-                temp, temp_qc, temp_adjusted, temp_adjusted_qc, temp_adjusted_error,
-                psal, psal_qc, psal_adjusted, psal_adjusted_qc, psal_adjusted_error,
-                doxy, doxy_qc, chla, chla_qc, bbp700, bbp700_qc, nitrate, nitrate_qc,
-                ph_in_situ_total, ph_in_situ_total_qc
-            ) VALUES %s
-            ON CONFLICT (trajectory_id, platform_number, cycle_number, juld) DO UPDATE SET
-                latitude = EXCLUDED.latitude,
-                longitude = EXCLUDED.longitude,
-                pres = EXCLUDED.pres,
-                temp = EXCLUDED.temp,
-                psal = EXCLUDED.psal,
-                doxy = EXCLUDED.doxy,
-                chla = EXCLUDED.chla,
-                bbp700 = EXCLUDED.bbp700,
-                nitrate = EXCLUDED.nitrate,
-                ph_in_situ_total = EXCLUDED.ph_in_situ_total,
-                updated_at = CURRENT_TIMESTAMP
-            """
+                # Add unique constraint if not exists (run this once)
+                try:
+                    cursor.execute("""
+                        ALTER TABLE trajectory_depth_table 
+                        ADD CONSTRAINT unique_traj_depth_measurement 
+                        UNIQUE (platform_number, cycle_number, measurement_code, measurement_index)
+                    """)
+                    conn.commit()
+                    logger.info("Added unique constraint to trajectory_depth_table")
+                except Exception:
+                    # Constraint already exists, ignore
+                    conn.rollback()
 
-            execute_values(cursor, sql, trajectory_depth_values, template=None, page_size=100)
-            conn.commit()
-            logger.info(f"Updated trajectory_depth_table: {len(trajectory_depth_values)} depth measurements")
+                sql = """
+                INSERT INTO trajectory_depth_table (
+                    trajectory_id, platform_number, cycle_number,
+                    measurement_code, measurement_index,
+                    latitude, longitude, juld, juld_status, juld_adjusted, juld_adjusted_qc, juld_adjusted_status,
+                    position_accuracy, axes_error_ellipse_major, axes_error_ellipse_minor, axes_error_ellipse_angle,
+                    satellite_name, positioning_system, position_qc,
+                    pres, pres_qc, pres_adjusted, pres_adjusted_qc, pres_adjusted_error,
+                    temp, temp_qc, temp_adjusted, temp_adjusted_qc, temp_adjusted_error,
+                    psal, psal_qc, psal_adjusted, psal_adjusted_qc, psal_adjusted_error
+                ) VALUES %s
+                ON CONFLICT (platform_number, cycle_number, measurement_code, measurement_index) DO UPDATE SET
+                    trajectory_id = EXCLUDED.trajectory_id,
+                    latitude = EXCLUDED.latitude,
+                    longitude = EXCLUDED.longitude,
+                    juld = EXCLUDED.juld,
+                    juld_status = EXCLUDED.juld_status,
+                    juld_adjusted = EXCLUDED.juld_adjusted,
+                    juld_adjusted_qc = EXCLUDED.juld_adjusted_qc,
+                    juld_adjusted_status = EXCLUDED.juld_adjusted_status,
+                    position_accuracy = EXCLUDED.position_accuracy,
+                    axes_error_ellipse_major = EXCLUDED.axes_error_ellipse_major,
+                    axes_error_ellipse_minor = EXCLUDED.axes_error_ellipse_minor,
+                    axes_error_ellipse_angle = EXCLUDED.axes_error_ellipse_angle,
+                    satellite_name = EXCLUDED.satellite_name,
+                    positioning_system = EXCLUDED.positioning_system,
+                    position_qc = EXCLUDED.position_qc,
+                    pres = EXCLUDED.pres,
+                    pres_qc = EXCLUDED.pres_qc,
+                    pres_adjusted = EXCLUDED.pres_adjusted,
+                    pres_adjusted_qc = EXCLUDED.pres_adjusted_qc,
+                    pres_adjusted_error = EXCLUDED.pres_adjusted_error,
+                    temp = EXCLUDED.temp,
+                    temp_qc = EXCLUDED.temp_qc,
+                    temp_adjusted = EXCLUDED.temp_adjusted,
+                    temp_adjusted_qc = EXCLUDED.temp_adjusted_qc,
+                    temp_adjusted_error = EXCLUDED.temp_adjusted_error,
+                    psal = EXCLUDED.psal,
+                    psal_qc = EXCLUDED.psal_qc,
+                    psal_adjusted = EXCLUDED.psal_adjusted,
+                    psal_adjusted_qc = EXCLUDED.psal_adjusted_qc,
+                    psal_adjusted_error = EXCLUDED.psal_adjusted_error,
+                    updated_at = CURRENT_TIMESTAMP
+                """
 
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error inserting trajectory depth data: {e}")
-            raise
-        finally:
-            cursor.close()
+                from psycopg2.extras import execute_values
+                execute_values(cursor, sql, trajectory_depth_values, template=None, page_size=100)
+                conn.commit()
+                logger.info(f"✅ Updated trajectory_depth_table: {len(trajectory_depth_values)} depth measurements")
 
-            sql = """
-            INSERT INTO parameter_table (
-                platform_number, station_parameter, parameter_data_mode, parameter_sensor,
-                parameter_units, parameter_accuracy, parameter_resolution
-            ) VALUES %s
-            """
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"❌ Error inserting trajectory depth data: {e}")
+                raise
+            finally:
+                cursor.close()
 
-            execute_values(cursor, sql, param_values)
-            conn.commit()
-            logger.info(f"Updated parameter_table: {len(param_data_list)} parameters")
+
 
     def insert_config_data(self, config_data_list):
         """Insert into config_table with duplicate prevention"""
@@ -1280,7 +1412,7 @@ class UltimateArgoNetCDFParser:
             cursor.close()
 
     def insert_history_data(self, history_data_list):
-        """Insert into history_table with duplicate prevention"""
+        """Insert into history_table with duplicate prevention - Updated for new schema"""
         if not history_data_list:
             return
 
@@ -1292,32 +1424,54 @@ class UltimateArgoNetCDFParser:
             for history in history_data_list:
                 history_values.append((
                     history['platform_number'],
-                    history['cycle_number'],
+                    history.get('cycle_number'),  # Added cycle_number
                     history['history_institution'],
                     history['history_step'],
                     history['history_software'],
                     history['history_software_release'],
+                    history.get('history_reference', ''),  # Added reference
                     history['history_date'],
                     history['history_action'],
                     history['history_parameter'],
+                    history.get('history_start_pres'),  # Added start_pres
+                    history.get('history_stop_pres'),   # Added stop_pres
+                    history.get('history_previous_value'),  # Added previous_value
                     history['history_qctest']
                 ))
+
+            # Add unique constraint if not exists
+            try:
+                cursor.execute("""
+                    ALTER TABLE history_table 
+                    ADD CONSTRAINT unique_history_record 
+                    UNIQUE (platform_number, history_institution, history_step, history_date, history_action)
+                """)
+                conn.commit()
+                logger.info("Added unique constraint to history_table")
+            except Exception:
+                # Constraint already exists, ignore
+                conn.rollback()
 
             # ✅ INSERT with ON CONFLICT to prevent duplicates
             sql = """
             INSERT INTO history_table (
                 platform_number, cycle_number, history_institution, history_step,
-                history_software, history_software_release, history_date,
-                history_action, history_parameter, history_qctest
+                history_software, history_software_release, history_reference, history_date,
+                history_action, history_parameter, history_start_pres, history_stop_pres,
+                history_previous_value, history_qctest
             ) VALUES %s
-            ON CONFLICT (platform_number, cycle_number, history_institution, history_step, history_date) 
+            ON CONFLICT (platform_number, history_institution, history_step, history_date, history_action) 
             DO UPDATE SET
+                cycle_number = EXCLUDED.cycle_number,
                 history_software = EXCLUDED.history_software,
                 history_software_release = EXCLUDED.history_software_release,
-                history_action = EXCLUDED.history_action,
+                history_reference = EXCLUDED.history_reference,
                 history_parameter = EXCLUDED.history_parameter,
+                history_start_pres = EXCLUDED.history_start_pres,
+                history_stop_pres = EXCLUDED.history_stop_pres,
+                history_previous_value = EXCLUDED.history_previous_value,
                 history_qctest = EXCLUDED.history_qctest,
-                updated_at = CURRENT_TIMESTAMP
+                created_at = CURRENT_TIMESTAMP
             """
 
             from psycopg2.extras import execute_values
@@ -1427,9 +1581,37 @@ class UltimateArgoNetCDFParser:
 
 
 
-   
+    def safe_get_cycle_var(self, ds, var_name, cycle_idx, default=None):
+        """Safely extract cycle-level variable with better NaT handling"""
+        if var_name not in ds:
+            return default
+        
+        try:
+            var_values = ds[var_name].values
+            if var_values.ndim == 0:
+                raw_val = var_values.item()
+            elif cycle_idx < len(var_values):
+                raw_val = var_values[cycle_idx]
+            else:
+                return default
+                
+            # Handle JULD variables specially
+            if 'JULD' in var_name:
+                return self.enhanced_julian_to_datetime(raw_val)
+            else:
+                # For non-date fields, decode safely
+                decoded = self.safe_decode(raw_val)
+                # Return None for 'nan' strings
+                if decoded and decoded.lower() in ['nan', 'nat', '']:
+                    return None
+                return decoded
+                
+        except Exception as e:
+            logger.warning(f"Error extracting {var_name}[{cycle_idx}]: {e}")
+            return default
+
     def insert_trajectory_data(self, trajectories, batch_size=1000):
-        """Insert into trajectory_table - MATCHES YOUR SCHEMA WITH DATA TRUNCATION"""
+        """Insert into trajectory_table - Updated for new schema with full UPDATE"""
         if not trajectories:
             return
 
@@ -1446,70 +1628,114 @@ class UltimateArgoNetCDFParser:
                 if value is None:
                     return None
                 str_val = str(value).strip()
-                # Handle 'nan' strings for QC fields
                 if str_val.lower() == 'nan':
-                    return '0'
-                return str_val[:1] if str_val else '0'  # Truncate to 1 char
+                    return None
+                return str_val[:1] if str_val else None
             
             def safe_varchar_50(value):
                 """Ensure value fits in VARCHAR(50)"""
                 if value is None:
                     return None
                 str_val = str(value).strip()
-                return str_val[:50] if str_val else ''  # Truncate to 50 chars
+                return str_val[:50] if str_val else None
             
             for i in range(0, len(trajectories), batch_size):
                 batch = trajectories[i:i+batch_size]
                 trajectory_values = []
                 
                 for traj in batch:
-                    # Only skip if no platform number
                     if not traj.get('platform_number'):
                         total_skipped += 1
                         continue
                     
-                    # Match your exact schema columns WITH PROPER TRUNCATION
+                    # Match your NEW schema columns
                     trajectory_values.append((
                         traj['platform_number'],
                         traj.get('cycle_number'),
-                        traj.get('juld'),  # TIMESTAMP - can be None
-                        safe_char_1(traj.get('juld_qc', '0')),  # CHAR(1) - FIXED
-                        traj.get('latitude'),  # DECIMAL - can be None
-                        traj.get('longitude'),  # DECIMAL - can be None
-                        safe_char_1(traj.get('position_qc', '0')),  # CHAR(1) - FIXED
-                        safe_varchar_50(traj.get('positioning_system', '')),  # VARCHAR(50) - FIXED
-                        safe_char_1(traj.get('direction', 'A')),  # CHAR(1) - FIXED
-                        safe_char_1(traj.get('data_mode', 'R')),  # CHAR(1) - FIXED
-                        # Basic measurements at trajectory points
-                        traj.get('pres'),  # From your processing
-                        traj.get('temp'),  # From your processing
-                        traj.get('psal'),  # From your processing
-                        safe_varchar_50(traj.get('parameter', 'TRAJECTORY')),  # VARCHAR(50) - FIXED
-                        # BGC parameters
-                        traj.get('doxy'),  # From your processing
-                        traj.get('nitrate'),  # From your processing
-                        traj.get('ph_in_situ_total'),  # From your processing
-                        traj.get('chla'),  # From your processing
-                        traj.get('bbp700'),  # From your processing
-                        traj.get('cdom'),  # From your processing
-                        # Station parameters as JSONB
-                        traj.get('station_parameters', '{}')  # JSON string from your processing
+                        # Cycle timing summary fields
+                        traj.get('juld_first_location'),
+                        traj.get('juld_last_location'),
+                        traj.get('juld_first_message'),
+                        traj.get('juld_last_message'),
+                        traj.get('juld_ascent_start'),
+                        traj.get('juld_ascent_end'),
+                        traj.get('juld_descent_start'),
+                        traj.get('juld_descent_end'),
+                        traj.get('juld_park_start'),
+                        traj.get('juld_park_end'),
+                        traj.get('juld_transmission_start'),
+                        traj.get('juld_transmission_end'),
+                        # Position summary
+                        traj.get('first_latitude'),
+                        traj.get('first_longitude'),
+                        traj.get('last_latitude'),
+                        traj.get('last_longitude'),
+                        # Metadata
+                        safe_varchar_50(traj.get('positioning_system')),
+                        safe_char_1(traj.get('data_mode', 'R')),
+                        traj.get('config_mission_number'),
+                        safe_char_1(traj.get('grounded')),
+                        # Representative measurements
+                        traj.get('representative_park_pressure'),
+                        safe_char_1(traj.get('representative_park_pressure_status')),
+                        # Adjustments
+                        traj.get('cycle_number_adjusted'),
+                        # Status fields
+                        safe_char_1(traj.get('juld_first_location_status')),
+                        safe_char_1(traj.get('juld_last_location_status')),
+                        safe_char_1(traj.get('juld_first_message_status')),
+                        safe_char_1(traj.get('juld_last_message_status'))
                     ))
 
                 if trajectory_values:
                     sql = """
                     INSERT INTO trajectory_table (
-                        platform_number, cycle_number, juld, juld_qc, latitude, longitude,
-                        position_qc, positioning_system, direction, data_mode,
-                        pres, temp, psal, parameter,
-                        doxy, nitrate, ph_in_situ_total, chla, bbp700, cdom,
-                        station_parameters
+                        platform_number, cycle_number,
+                        juld_first_location, juld_last_location, juld_first_message, juld_last_message,
+                        juld_ascent_start, juld_ascent_end, juld_descent_start, juld_descent_end,
+                        juld_park_start, juld_park_end, juld_transmission_start, juld_transmission_end,
+                        first_latitude, first_longitude, last_latitude, last_longitude,
+                        positioning_system, data_mode, config_mission_number, grounded,
+                        representative_park_pressure, representative_park_pressure_status,
+                        cycle_number_adjusted,
+                        juld_first_location_status, juld_last_location_status,
+                        juld_first_message_status, juld_last_message_status
                     ) VALUES %s
+                    ON CONFLICT (platform_number, cycle_number) DO UPDATE SET
+                        juld_first_location = EXCLUDED.juld_first_location,
+                        juld_last_location = EXCLUDED.juld_last_location,
+                        juld_first_message = EXCLUDED.juld_first_message,
+                        juld_last_message = EXCLUDED.juld_last_message,
+                        juld_ascent_start = EXCLUDED.juld_ascent_start,
+                        juld_ascent_end = EXCLUDED.juld_ascent_end,
+                        juld_descent_start = EXCLUDED.juld_descent_start,
+                        juld_descent_end = EXCLUDED.juld_descent_end,
+                        juld_park_start = EXCLUDED.juld_park_start,
+                        juld_park_end = EXCLUDED.juld_park_end,
+                        juld_transmission_start = EXCLUDED.juld_transmission_start,
+                        juld_transmission_end = EXCLUDED.juld_transmission_end,
+                        first_latitude = EXCLUDED.first_latitude,
+                        first_longitude = EXCLUDED.first_longitude,
+                        last_latitude = EXCLUDED.last_latitude,
+                        last_longitude = EXCLUDED.last_longitude,
+                        positioning_system = EXCLUDED.positioning_system,
+                        data_mode = EXCLUDED.data_mode,
+                        config_mission_number = EXCLUDED.config_mission_number,
+                        grounded = EXCLUDED.grounded,
+                        representative_park_pressure = EXCLUDED.representative_park_pressure,
+                        representative_park_pressure_status = EXCLUDED.representative_park_pressure_status,
+                        cycle_number_adjusted = EXCLUDED.cycle_number_adjusted,
+                        juld_first_location_status = EXCLUDED.juld_first_location_status,
+                        juld_last_location_status = EXCLUDED.juld_last_location_status,
+                        juld_first_message_status = EXCLUDED.juld_first_message_status,
+                        juld_last_message_status = EXCLUDED.juld_last_message_status,
+                        updated_at = CURRENT_TIMESTAMP
                     """
 
+                    from psycopg2.extras import execute_values
                     execute_values(cursor, sql, trajectory_values, template=None, page_size=100)
                     conn.commit()
-                    logger.info(f"✅ Updated trajectory_table: batch of {len(trajectory_values)} trajectory points")
+                    logger.info(f"✅ Updated trajectory_table: batch of {len(trajectory_values)} trajectory cycles")
                     total_inserted += len(trajectory_values)
 
             logger.info(f"🎯 TRAJECTORY SUCCESS: {total_inserted} inserted, {total_skipped} skipped")
@@ -1517,92 +1743,15 @@ class UltimateArgoNetCDFParser:
         except Exception as e:
             conn.rollback()
             logger.error(f"❌ Error inserting trajectory data: {e}")
-            logger.error(f"Sample trajectory data: {trajectories[0] if trajectories else 'None'}")
             raise
         finally:
             cursor.close()
+
 
 
     # Placeholder methods for trajectory-specific tables (populated by trajectory files)
-    def insert_trajectory_depth_data(self, traj_depth_data):
-        """Insert into trajectory_depth_table - FIXED VERSION"""
-        if not traj_depth_data:
-            return
+    
 
-        conn = self.connect_postgres()
-        cursor = conn.cursor()
-
-        try:
-            # Helper function for CHAR(1) fields
-            def safe_char_1(value):
-                if value is None:
-                    return '0'
-                str_val = str(value).strip()
-                if str_val.lower() == 'nan':
-                    return '0'
-                return str_val[:1] if str_val else '0'
-
-            trajectory_depth_values = []
-            for traj_depth in traj_depth_data:
-                trajectory_depth_values.append((
-                    traj_depth['trajectory_id'],
-                    traj_depth['platform_number'],
-                    traj_depth['cycle_number'],
-                    traj_depth.get('latitude'),
-                    traj_depth.get('longitude'),
-                    traj_depth.get('juld'),
-                    # Pressure measurements
-                    traj_depth.get('pres'),
-                    safe_char_1(traj_depth.get('pres_qc', '0')),
-                    traj_depth.get('pres_adjusted'),
-                    safe_char_1(traj_depth.get('pres_adjusted_qc', '0')),
-                    traj_depth.get('pres_adjusted_error'),
-                    # Temperature measurements
-                    traj_depth.get('temp'),
-                    safe_char_1(traj_depth.get('temp_qc', '0')),
-                    traj_depth.get('temp_adjusted'),
-                    safe_char_1(traj_depth.get('temp_adjusted_qc', '0')),
-                    traj_depth.get('temp_adjusted_error'),
-                    # Salinity measurements
-                    traj_depth.get('psal'),
-                    safe_char_1(traj_depth.get('psal_qc', '0')),
-                    traj_depth.get('psal_adjusted'),
-                    safe_char_1(traj_depth.get('psal_adjusted_qc', '0')),
-                    traj_depth.get('psal_adjusted_error'),
-                    # BGC parameters
-                    traj_depth.get('doxy'),
-                    safe_char_1(traj_depth.get('doxy_qc', '0')),
-                    traj_depth.get('chla'),
-                    safe_char_1(traj_depth.get('chla_qc', '0')),
-                    traj_depth.get('bbp700'),
-                    safe_char_1(traj_depth.get('bbp700_qc', '0')),
-                    traj_depth.get('nitrate'),
-                    safe_char_1(traj_depth.get('nitrate_qc', '0')),
-                    traj_depth.get('ph_in_situ_total'),
-                    safe_char_1(traj_depth.get('ph_in_situ_total_qc', '0'))
-                ))
-
-            sql = """
-            INSERT INTO trajectory_depth_table (
-                trajectory_id, platform_number, cycle_number, latitude, longitude, juld,
-                pres, pres_qc, pres_adjusted, pres_adjusted_qc, pres_adjusted_error,
-                temp, temp_qc, temp_adjusted, temp_adjusted_qc, temp_adjusted_error,
-                psal, psal_qc, psal_adjusted, psal_adjusted_qc, psal_adjusted_error,
-                doxy, doxy_qc, chla, chla_qc, bbp700, bbp700_qc, nitrate, nitrate_qc,
-                ph_in_situ_total, ph_in_situ_total_qc
-            ) VALUES %s
-            """
-
-            execute_values(cursor, sql, trajectory_depth_values, template=None, page_size=100)
-            conn.commit()
-            logger.info(f"✅ Updated trajectory_depth_table: {len(trajectory_depth_values)} depth measurements")
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error inserting trajectory depth data: {e}")
-            raise
-        finally:
-            cursor.close()
 
     def _extract_comprehensive_meta_data(self, ds, platform_number):
         """Extract comprehensive metadata from global attributes - BASED ON YOUR OUTPUT FORMAT"""
@@ -2270,7 +2419,7 @@ class UltimateArgoNetCDFParser:
 
 
     def process_trajectory_file(self, filepath):
-        """Process trajectory.nc file - WITH TRAJECTORY AND DEPTH DATA"""
+        """Process trajectory.nc file - Updated with history data extraction"""
         logger.info(f"Processing trajectory file: {filepath}")
 
         ds = None
@@ -2291,223 +2440,314 @@ class UltimateArgoNetCDFParser:
 
             # Get dimensions
             n_measurement = ds.sizes.get('N_MEASUREMENT', 0)
-            logger.info(f"Number of measurements: {n_measurement}")
+            n_cycle = ds.sizes.get('N_CYCLE', 0)
+            n_history = ds.sizes.get('N_HISTORY', 0)
+            logger.info(f"Number of measurements: {n_measurement}, cycles: {n_cycle}, history: {n_history}")
 
-            # Define safe_get_var function
-            def safe_get_var(var_name, meas_idx, default=None):
-                """Safely extract trajectory variable handling different array dimensions"""
+            # Helper function for cycle-level data
+            def safe_get_cycle_var(var_name, cycle_idx, default=None):
+                """Safely extract cycle-level variable"""
                 if var_name not in ds:
                     return default
                 
                 try:
                     var_values = ds[var_name].values
                     if var_values.ndim == 0:
-                        # Scalar value - same for all measurements
-                        if isinstance(default, str):
-                            decoded_val = self.safe_decode(var_values.item())
-                            # Handle 'nan' strings for QC fields
-                            if decoded_val.lower() == 'nan' and var_name.endswith('_QC'):
-                                return '0'
-                            return decoded_val
+                        return self.enhanced_julian_to_datetime(var_values.item()) if 'JULD' in var_name else self.safe_decode(var_values.item())
+                    elif cycle_idx < len(var_values):
+                        if 'JULD' in var_name:
+                            return self.enhanced_julian_to_datetime(var_values[cycle_idx])
+                        else:
+                            return self.safe_decode(var_values[cycle_idx])
+                    return default
+                except Exception as e:
+                    logger.warning(f"Error extracting {var_name}[{cycle_idx}]: {e}")
+                    return default
+
+            # Helper function for measurement-level data
+            def safe_get_measurement_var(var_name, meas_idx, default=None):
+                """Safely extract measurement-level variable"""
+                if var_name not in ds:
+                    return default
+                
+                try:
+                    var_values = ds[var_name].values
+                    if var_values.ndim == 0:
+                        if 'JULD' in var_name:
+                            return self.enhanced_julian_to_datetime(var_values.item())
+                        elif isinstance(default, str):
+                            return self.safe_decode(var_values.item())
                         else:
                             return self.safe_float(var_values.item())
-                    elif var_values.ndim == 1:
-                        # Array - different per measurement
-                        if meas_idx < len(var_values):
-                            if isinstance(default, str):
-                                decoded_val = self.safe_decode(var_values[meas_idx])
-                                # Handle 'nan' strings for QC fields
-                                if decoded_val.lower() == 'nan' and var_name.endswith('_QC'):
-                                    return '0'
-                                return decoded_val
-                            else:
-                                return self.safe_float(var_values[meas_idx])
+                    elif meas_idx < len(var_values):
+                        if 'JULD' in var_name:
+                            return self.enhanced_julian_to_datetime(var_values[meas_idx])
+                        elif isinstance(default, str):
+                            return self.safe_decode(var_values[meas_idx])
+                        else:
+                            return self.safe_float(var_values[meas_idx])
                     return default
                 except Exception as e:
                     logger.warning(f"Error extracting {var_name}[{meas_idx}]: {e}")
                     return default
 
-            # 1. TRAJECTORY_TABLE - Main trajectory data
+            # Helper function for history-level data
+            def safe_get_history_var(var_name, hist_idx, default=None):
+                """Safely extract history-level variable"""
+                if var_name not in ds:
+                    return default
+                
+                try:
+                    var_values = ds[var_name].values
+                    if var_values.ndim == 0:
+                        if 'HISTORY_DATE' in var_name:
+                            return self.enhanced_julian_to_datetime(var_values.item())
+                        else:
+                            return self.safe_decode(var_values.item())
+                    elif hist_idx < len(var_values):
+                        if 'HISTORY_DATE' in var_name:
+                            date_str = self.safe_decode(var_values[hist_idx])
+                            if date_str and date_str != '':
+                                try:
+                                    # Parse YYYYMMDDHHMMSS format
+                                    if len(date_str) >= 14:
+                                        from datetime import datetime
+                                        return datetime.strptime(date_str[:14], '%Y%m%d%H%M%S')
+                                    return None
+                                except:
+                                    return None
+                            return None
+                        else:
+                            return self.safe_decode(var_values[hist_idx])
+                    return default
+                except Exception as e:
+                    logger.warning(f"Error extracting {var_name}[{hist_idx}]: {e}")
+                    return default
+
+            # 1. TRAJECTORY_TABLE - Create cycle-level summary data
             trajectory_data_list = []
-
-            for meas_idx in range(n_measurement):
-                # Safely get Julian date
-                juld_val = None
-                if 'JULD' in ds:
-                    juld_values = ds['JULD'].values
-                    if juld_values.ndim == 0:
-                        raw_juld = juld_values.item()
-                    elif meas_idx < len(juld_values):
-                        raw_juld = juld_values[meas_idx]
-                    else:
-                        raw_juld = None
-                    
-                    if raw_juld is not None and str(raw_juld) != 'NaT':
-                        try:
-                            import pandas as pd
-                            if not pd.isna(raw_juld):
-                                juld_val = self.enhanced_julian_to_datetime(raw_juld)
-                        except:
-                            juld_val = None
-
-                # Get cycle number safely
-                cycle_number = safe_get_var('CYCLE_NUMBER', meas_idx, None)
+            
+            for cycle_idx in range(n_cycle):
+                # cycle_number = safe_get_cycle_var('CYCLE_NUMBER_INDEX', cycle_idx, None)
+                cycle_number = safe_get_cycle_var('CYCLE_NUMBER_INDEX', cycle_idx, cycle_idx)  # Use index as fallback
                 if cycle_number is not None:
                     cycle_number = self.safe_int(cycle_number)
+                else:
+                    cycle_number = cycle_idx
 
-                # Get measurement code safely
-                measurement_code = safe_get_var('MEASUREMENT_CODE', meas_idx, None)
-                if measurement_code is not None:
-                    measurement_code = self.safe_int(measurement_code)
-
-                # Get coordinates safely
-                lat_val = safe_get_var('LATITUDE', meas_idx, None)
-                lon_val = safe_get_var('LONGITUDE', meas_idx, None)
-
-                # Create trajectory record
                 trajectory_data = {
                     'platform_number': platform_number,
                     'cycle_number': cycle_number,
-                    'juld': juld_val,
-                    'juld_qc': safe_get_var('JULD_QC', meas_idx, '0'),
-                    'latitude': lat_val,
-                    'longitude': lon_val,
-                    'position_qc': safe_get_var('POSITION_QC', meas_idx, '0'),
-                    'positioning_system': safe_get_var('POSITIONING_SYSTEM', meas_idx, ''),
-                    'direction': 'A',
-                    'data_mode': safe_get_var('DATA_MODE', meas_idx, 'R'),
-                    # Basic measurements
-                    'pres': safe_get_var('PRES', meas_idx, None),
-                    'temp': safe_get_var('TEMP', meas_idx, None),
-                    'psal': None,  # Usually not in trajectory files
-                    'parameter': f'MC{measurement_code}' if measurement_code else 'TRAJECTORY',
-                    # BGC parameters (usually not in trajectory files)
-                    'doxy': None,
-                    'nitrate': None,
-                    'ph_in_situ_total': None,
-                    'chla': None,
-                    'bbp700': None,
-                    'cdom': None,
-                    # Station parameters as JSON string
-                    'station_parameters': json.dumps({
-                        'measurement_code': measurement_code,
-                        'juld_status': safe_get_var('JULD_STATUS', meas_idx, ''),
-                        'position_accuracy': safe_get_var('POSITION_ACCURACY', meas_idx, ''),
-                        'satellite_name': safe_get_var('SATELLITE_NAME', meas_idx, '')
-                    })
+                    # Timing summary
+                    'juld_first_location': self.clean_timestamp_value(safe_get_cycle_var('JULD_FIRST_LOCATION', cycle_idx)),
+                    'juld_last_location': self.clean_timestamp_value(safe_get_cycle_var('JULD_LAST_LOCATION', cycle_idx)),
+                    'juld_first_message': self.clean_timestamp_value(safe_get_cycle_var('JULD_FIRST_MESSAGE', cycle_idx)),
+                    'juld_last_message': self.clean_timestamp_value(safe_get_cycle_var('JULD_LAST_MESSAGE', cycle_idx)),
+                    'juld_ascent_start': self.clean_timestamp_value(safe_get_cycle_var('JULD_ASCENT_START', cycle_idx)),
+                    'juld_ascent_end': self.clean_timestamp_value(safe_get_cycle_var('JULD_ASCENT_END', cycle_idx)),
+                    'juld_descent_start': self.clean_timestamp_value(safe_get_cycle_var('JULD_DESCENT_START', cycle_idx)),
+                    'juld_descent_end': self.clean_timestamp_value(safe_get_cycle_var('JULD_DESCENT_END', cycle_idx)),
+                    'juld_park_start': self.clean_timestamp_value(safe_get_cycle_var('JULD_PARK_START', cycle_idx)),
+                    'juld_park_end': self.clean_timestamp_value(safe_get_cycle_var('JULD_PARK_END', cycle_idx)),
+                    'juld_transmission_start': self.clean_timestamp_value(safe_get_cycle_var('JULD_TRANSMISSION_START', cycle_idx)),
+                    'juld_transmission_end': self.clean_timestamp_value(safe_get_cycle_var('JULD_TRANSMISSION_END', cycle_idx)),
+                    # Position summary (will be filled from first/last measurements)
+                    'first_latitude': None,
+                    'first_longitude': None,
+                    'last_latitude': None,
+                    'last_longitude': None,
+                    # Metadata
+                    'positioning_system': self.safe_decode(ds.attrs.get('positioning_system', 'ARGOS'))[:50],
+                    'data_mode': safe_get_cycle_var('DATA_MODE', cycle_idx, 'R'),
+                    'config_mission_number': self.safe_int(safe_get_cycle_var('CONFIG_MISSION_NUMBER', cycle_idx)),
+                    'grounded': safe_get_cycle_var('GROUNDED', cycle_idx, 'U'),
+                    'representative_park_pressure': self.safe_float(safe_get_cycle_var('REPRESENTATIVE_PARK_PRESSURE', cycle_idx)),
+                    'representative_park_pressure_status': safe_get_cycle_var('REPRESENTATIVE_PARK_PRESSURE_STATUS', cycle_idx),
+                    'cycle_number_adjusted': self.safe_int(safe_get_cycle_var('CYCLE_NUMBER_INDEX_ADJUSTED', cycle_idx)),
+                    # Status fields
+                    'juld_first_location_status': safe_get_cycle_var('JULD_FIRST_LOCATION_STATUS', cycle_idx),
+                    'juld_last_location_status': safe_get_cycle_var('JULD_LAST_LOCATION_STATUS', cycle_idx),
+                    'juld_first_message_status': safe_get_cycle_var('JULD_FIRST_MESSAGE_STATUS', cycle_idx),
+                    'juld_last_message_status': safe_get_cycle_var('JULD_LAST_MESSAGE_STATUS', cycle_idx)
                 }
                 
                 trajectory_data_list.append(trajectory_data)
 
-            logger.info(f"Total trajectory records created: {len(trajectory_data_list)}")
+            logger.info(f"Created {len(trajectory_data_list)} trajectory cycle records")
 
             # Insert trajectory data first
             if trajectory_data_list:
                 self.insert_trajectory_data(trajectory_data_list)
 
-            # 2. TRAJECTORY_DEPTH_TABLE - Get trajectory IDs and create depth data
-            trajectory_depth_list = []
+            # 2. HISTORY_TABLE - Extract history data from trajectory file
+            history_data_list = []
             
+            if n_history > 0:
+                logger.info(f"Processing {n_history} history records from trajectory file")
+                
+                for hist_idx in range(n_history):
+                    # Extract history data
+                    history_institution = safe_get_history_var('HISTORY_INSTITUTION', hist_idx, '')
+                    history_step = safe_get_history_var('HISTORY_STEP', hist_idx, '')
+                    history_software = safe_get_history_var('HISTORY_SOFTWARE', hist_idx, '')
+                    history_software_release = safe_get_history_var('HISTORY_SOFTWARE_RELEASE', hist_idx, '')
+                    history_reference = safe_get_history_var('HISTORY_REFERENCE', hist_idx, '')
+                    history_date = safe_get_history_var('HISTORY_DATE', hist_idx)
+                    history_action = safe_get_history_var('HISTORY_ACTION', hist_idx, '')
+                    history_parameter = safe_get_history_var('HISTORY_PARAMETER', hist_idx, '')
+                    history_qctest = safe_get_history_var('HISTORY_QCTEST', hist_idx, '')
+                    
+                    # Skip empty history records
+                    if not any([history_institution, history_step, history_software, history_action]):
+                        continue
+
+                    history_data = {
+                        'platform_number': platform_number,
+                        'cycle_number': None,  # Trajectory history is usually global, not per-cycle
+                        'history_institution': history_institution[:100] if history_institution else '',
+                        'history_step': history_step[:100] if history_step else '',
+                        'history_software': history_software[:100] if history_software else '',
+                        'history_software_release': history_software_release[:50] if history_software_release else '',
+                        'history_reference': history_reference[:200] if history_reference else '',
+                        'history_date': history_date,
+                        'history_action': history_action[:100] if history_action else '',
+                        'history_parameter': history_parameter[:100] if history_parameter else '',
+                        'history_start_pres': None,  # Not typically in trajectory files
+                        'history_stop_pres': None,   # Not typically in trajectory files
+                        'history_previous_value': None,  # Not typically in trajectory files
+                        'history_qctest': history_qctest[:100] if history_qctest else ''
+                    }
+                    
+                    history_data_list.append(history_data)
+
+            logger.info(f"Created {len(history_data_list)} history records")
+
+            # Insert history data
+            if history_data_list:
+                self.insert_history_data(history_data_list)
+
+            # 3. TRAJECTORY_DEPTH_TABLE - Create measurement-level data
+            # 3. TRAJECTORY_DEPTH_TABLE - Create measurement-level data with DEBUG
+            trajectory_depth_list = []
+
             conn = self.connect_postgres()
             cursor = conn.cursor()
             try:
                 # Get trajectory IDs for this platform
                 cursor.execute("""
-                    SELECT trajectory_id, cycle_number, juld 
+                    SELECT trajectory_id, cycle_number 
                     FROM trajectory_table 
                     WHERE platform_number = %s 
-                    ORDER BY cycle_number, juld
+                    ORDER BY cycle_number
                 """, (platform_number,))
                 trajectory_records = cursor.fetchall()
                 
                 # Create lookup dictionary
-                trajectory_ids = {}
-                for traj_id, cycle, juld in trajectory_records:
-                    trajectory_ids[(cycle, juld)] = traj_id
+                trajectory_ids = {cycle: traj_id for traj_id, cycle in trajectory_records}
+                logger.info(f"🔍 Found {len(trajectory_ids)} trajectory IDs for platform {platform_number}")
 
-                # Create trajectory depth data for measurements with valid data
+                # 🔍 DEBUG: Check what cycles we have
+                logger.info(f"🔍 Available cycles: {list(trajectory_ids.keys())[:10]}...")  # Show first 10
+
+                # Process ALL measurements with detailed debugging
+                skipped_reasons = {"no_trajectory_id": 0, "no_useful_data": 0, "created": 0}
+                
                 for meas_idx in range(n_measurement):
-                    cycle_number = safe_get_var('CYCLE_NUMBER', meas_idx, None)
-                    if cycle_number is not None:
-                        cycle_number = self.safe_int(cycle_number)
-
-                    juld_val = None
-                    if 'JULD' in ds:
-                        juld_values = ds['JULD'].values
-                        if juld_values.ndim == 0:
-                            raw_juld = juld_values.item()
-                        elif meas_idx < len(juld_values):
-                            raw_juld = juld_values[meas_idx]
-                        else:
-                            raw_juld = None
-                        
-                        if raw_juld is not None and str(raw_juld) != 'NaT':
-                            try:
-                                import pandas as pd
-                                if not pd.isna(raw_juld):
-                                    juld_val = self.enhanced_julian_to_datetime(raw_juld)
-                            except:
-                                juld_val = None
-
+                    cycle_number = self.safe_int(safe_get_measurement_var('CYCLE_NUMBER', meas_idx))
+                    measurement_code = self.safe_int(safe_get_measurement_var('MEASUREMENT_CODE', meas_idx))
+                    
                     # Find matching trajectory_id
-                    trajectory_id = trajectory_ids.get((cycle_number, juld_val))
+                    trajectory_id = trajectory_ids.get(cycle_number)
                     
-                    # Only create depth data if we have trajectory ID and some measurement data
-                    pres_val = safe_get_var('PRES', meas_idx, None)
-                    temp_val = safe_get_var('TEMP', meas_idx, None)
+                    # 🔍 DEBUG: Log first few measurements
+                    if meas_idx < 5:
+                        logger.info(f"🔍 Measurement {meas_idx}: cycle={cycle_number}, code={measurement_code}, traj_id={trajectory_id}")
                     
-                    if trajectory_id and (pres_val is not None or temp_val is not None):
-                        traj_depth_data = {
-                            'trajectory_id': trajectory_id,
-                            'platform_number': platform_number,
-                            'cycle_number': cycle_number,
-                            'latitude': safe_get_var('LATITUDE', meas_idx, None),
-                            'longitude': safe_get_var('LONGITUDE', meas_idx, None),
-                            'juld': juld_val,
-                            # Pressure measurements
-                            'pres': pres_val,
-                            'pres_qc': safe_get_var('PRES_QC', meas_idx, '0'),
-                            'pres_adjusted': safe_get_var('PRES_ADJUSTED', meas_idx, None),
-                            'pres_adjusted_qc': safe_get_var('PRES_ADJUSTED_QC', meas_idx, '0'),
-                            'pres_adjusted_error': safe_get_var('PRES_ADJUSTED_ERROR', meas_idx, None),
-                            # Temperature measurements
-                            'temp': temp_val,
-                            'temp_qc': safe_get_var('TEMP_QC', meas_idx, '0'),
-                            'temp_adjusted': safe_get_var('TEMP_ADJUSTED', meas_idx, None),
-                            'temp_adjusted_qc': safe_get_var('TEMP_ADJUSTED_QC', meas_idx, '0'),
-                            'temp_adjusted_error': safe_get_var('TEMP_ADJUSTED_ERROR', meas_idx, None),
-                            # Salinity measurements (usually not in trajectory)
-                            'psal': None,
-                            'psal_qc': '0',
-                            'psal_adjusted': None,
-                            'psal_adjusted_qc': '0',
-                            'psal_adjusted_error': None,
-                            # BGC parameters (usually not in trajectory)
-                            'doxy': None,
-                            'doxy_qc': '0',
-                            'chla': None,
-                            'chla_qc': '0',
-                            'bbp700': None,
-                            'bbp700_qc': '0',
-                            'nitrate': None,
-                            'nitrate_qc': '0',
-                            'ph_in_situ_total': None,
-                            'ph_in_situ_total_qc': '0'
-                        }
-                        trajectory_depth_list.append(traj_depth_data)
+                    if trajectory_id is not None:
+                        # Get position data
+                        lat_val = safe_get_measurement_var('LATITUDE', meas_idx)
+                        lon_val = safe_get_measurement_var('LONGITUDE', meas_idx)
+                        raw_juld = safe_get_measurement_var('JULD', meas_idx)
+                        cleaned_juld = self.clean_timestamp_value(raw_juld)
+                        
+                        # 🔍 DEBUG: Log data availability for first few
+                        if meas_idx < 5:
+                            logger.info(f"🔍   Data: lat={lat_val}, lon={lon_val}, juld={cleaned_juld}, code={measurement_code}")
+                        
+                        # Check if we have ANY useful data
+                        has_position = lat_val is not None or lon_val is not None
+                        has_time = cleaned_juld is not None
+                        has_measurement_code = measurement_code is not None
+                        
+                        if has_position or has_time or has_measurement_code:
+                            # Helper function for safe CHAR(1) truncation
+                            def safe_qc_char(value, default='0'):
+                                if value is None:
+                                    return default
+                                str_val = str(value).strip()
+                                if str_val.lower() in ['nan', 'nat', '']:
+                                    return default
+                                return str_val[:1]
+                            
+                            traj_depth_data = {
+                                'trajectory_id': trajectory_id,
+                                'platform_number': platform_number,
+                                'cycle_number': cycle_number,
+                                'measurement_code': measurement_code,
+                                'measurement_index': meas_idx,
+                                'latitude': lat_val,
+                                'longitude': lon_val,
+                                'juld': cleaned_juld,
+                                'juld_status': safe_qc_char(safe_get_measurement_var('JULD_STATUS', meas_idx), '9'),
+                                'juld_adjusted': self.clean_timestamp_value(safe_get_measurement_var('JULD_ADJUSTED', meas_idx)),
+                                'juld_adjusted_qc': safe_qc_char(safe_get_measurement_var('JULD_ADJUSTED_QC', meas_idx), '0'),
+                                'juld_adjusted_status': safe_qc_char(safe_get_measurement_var('JULD_ADJUSTED_STATUS', meas_idx), '9'),
+                                'position_qc': safe_qc_char(safe_get_measurement_var('POSITION_QC', meas_idx), '0'),
+                                'position_accuracy': safe_qc_char(safe_get_measurement_var('POSITION_ACCURACY', meas_idx)),
+                                'axes_error_ellipse_major': self.safe_float(safe_get_measurement_var('AXES_ERROR_ELLIPSE_MAJOR', meas_idx)),
+                                'axes_error_ellipse_minor': self.safe_float(safe_get_measurement_var('AXES_ERROR_ELLIPSE_MINOR', meas_idx)),
+                                'axes_error_ellipse_angle': self.safe_float(safe_get_measurement_var('AXES_ERROR_ELLIPSE_ANGLE', meas_idx)),
+                                'satellite_name': str(safe_get_measurement_var('SATELLITE_NAME', meas_idx, ''))[:10],
+                                'positioning_system': str(safe_get_measurement_var('POSITIONING_SYSTEM', meas_idx, ''))[:50],
+                                'pres': self.safe_float(safe_get_measurement_var('PRES', meas_idx)),
+                                'pres_qc': safe_qc_char(safe_get_measurement_var('PRES_QC', meas_idx), '0'),
+                                'pres_adjusted': self.safe_float(safe_get_measurement_var('PRES_ADJUSTED', meas_idx)),
+                                'pres_adjusted_qc': safe_qc_char(safe_get_measurement_var('PRES_ADJUSTED_QC', meas_idx), '0'),
+                                'pres_adjusted_error': self.safe_float(safe_get_measurement_var('PRES_ADJUSTED_ERROR', meas_idx)),
+                                'temp': self.safe_float(safe_get_measurement_var('TEMP', meas_idx)),
+                                'temp_qc': safe_qc_char(safe_get_measurement_var('TEMP_QC', meas_idx), '0'),
+                                'temp_adjusted': self.safe_float(safe_get_measurement_var('TEMP_ADJUSTED', meas_idx)),
+                                'temp_adjusted_qc': safe_qc_char(safe_get_measurement_var('TEMP_ADJUSTED_QC', meas_idx), '0'),
+                                'temp_adjusted_error': self.safe_float(safe_get_measurement_var('TEMP_ADJUSTED_ERROR', meas_idx)),
+                                'psal': self.safe_float(safe_get_measurement_var('PSAL', meas_idx)),
+                                'psal_qc': safe_qc_char(safe_get_measurement_var('PSAL_QC', meas_idx), '0'),
+                                'psal_adjusted': self.safe_float(safe_get_measurement_var('PSAL_ADJUSTED', meas_idx)),
+                                'psal_adjusted_qc': safe_qc_char(safe_get_measurement_var('PSAL_ADJUSTED_QC', meas_idx), '0'),
+                                'psal_adjusted_error': self.safe_float(safe_get_measurement_var('PSAL_ADJUSTED_ERROR', meas_idx))
+                            }
+                            
+                            trajectory_depth_list.append(traj_depth_data)
+                            skipped_reasons["created"] += 1
+                        else:
+                            skipped_reasons["no_useful_data"] += 1
+                    else:
+                        skipped_reasons["no_trajectory_id"] += 1
 
+                # 🔍 DEBUG: Show why records were skipped
+                logger.info(f"🔍 TRAJECTORY DEPTH SUMMARY:")
+                logger.info(f"  - Created: {skipped_reasons['created']}")
+                logger.info(f"  - No trajectory_id: {skipped_reasons['no_trajectory_id']}")
+                logger.info(f"  - No useful data: {skipped_reasons['no_useful_data']}")
+                
                 if trajectory_depth_list:
+                    logger.info(f"✅ Inserting {len(trajectory_depth_list)} trajectory depth records")
                     self.insert_trajectory_depth_data(trajectory_depth_list)
+                else:
+                    logger.error("❌ NO trajectory depth records created - debugging needed!")
 
             finally:
                 cursor.close()
                 conn.close()
-
-            logger.info(f"Successfully processed trajectory file")
-            logger.info(f"  - Trajectory points: {len(trajectory_data_list)}")
-            logger.info(f"  - Trajectory depth measurements: {len(trajectory_depth_list)}")
-
-            return True
 
         except Exception as e:
             logger.error(f"Error processing trajectory file: {e}")
@@ -2515,12 +2755,13 @@ class UltimateArgoNetCDFParser:
             traceback.print_exc()
             return False
         finally:
-            # Ensure file is always closed
             if ds is not None:
                 try:
                     ds.close()
                 except:
                     pass
+
+
 
 
     def verify_data_insertion(self):
