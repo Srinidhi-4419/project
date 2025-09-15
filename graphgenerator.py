@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RAG-Enhanced Graph Generator for Argo Dashboard
+RAG-Enhanced Graph Generator for Argo Dashboard - FIXED VERSION
 """
 
 import re
@@ -96,49 +96,64 @@ class ArgoGraphGenerator:
                 
         except Exception as e:
             st.error(f"❌ Error generating graph: {e}")
+            st.error(f"🔍 Debug info: {type(e).__name__}: {str(e)}")
             return self.fallback_simple_generator(user_request)
     
     def fallback_simple_generator(self, user_request: str):
         """Fallback method when RAG system fails"""
         st.warning("⚠️ Using fallback simple graph generator...")
         
-        # Extract float number if present
-        float_match = re.search(r'\b(\d{5,7})\b', user_request)
-        platform_filter = float_match.group(1) if float_match else None
-        
-        # Simple variable detection
-        if 'temp' in user_request.lower() and 'sal' in user_request.lower():
-            x_var, y_var = 'temp', 'psal'
-        elif 'temp' in user_request.lower() and ('depth' in user_request.lower() or 'pres' in user_request.lower()):
-            x_var, y_var = 'temp', 'pres'
-        else:
-            x_var, y_var = 'temp', 'psal'  # Default
-        
-        # Build simple SQL
-        sql = f"""
-        SELECT {x_var}, {y_var}, platform_number
-        FROM depth_measurements_table 
-        WHERE {x_var} IS NOT NULL AND {y_var} IS NOT NULL
-        """
-        
-        if x_var in ['temp', 'psal']:
-            sql += f" AND {x_var}_qc = '1'"
-        if y_var in ['temp', 'psal']:
-            sql += f" AND {y_var}_qc = '1'"
+        try:
+            # Extract float number if present
+            float_match = re.search(r'\b(\d{5,7})\b', user_request)
+            platform_filter = float_match.group(1) if float_match else None
             
-        if platform_filter:
-            sql += f" AND platform_number = '{platform_filter}'"
+            # Simple variable detection
+            if 'temp' in user_request.lower() and 'sal' in user_request.lower():
+                x_var, y_var = 'temp', 'psal'
+            elif 'temp' in user_request.lower() and ('depth' in user_request.lower() or 'pres' in user_request.lower()):
+                x_var, y_var = 'temp', 'pres'
+            elif 'sal' in user_request.lower() and ('depth' in user_request.lower() or 'pres' in user_request.lower()):
+                x_var, y_var = 'psal', 'pres'
+            else:
+                x_var, y_var = 'temp', 'psal'  # Default
             
-        sql += f" ORDER BY {x_var} LIMIT 1000"
+            # Build simple SQL
+            sql = f"""
+            SELECT {x_var}, {y_var}, platform_number
+            FROM depth_measurements_table 
+            WHERE {x_var} IS NOT NULL AND {y_var} IS NOT NULL
+            """
+            
+            if x_var in ['temp', 'psal']:
+                sql += f" AND {x_var}_qc = '1'"
+            if y_var in ['temp', 'psal']:
+                sql += f" AND {y_var}_qc = '1'"
+                
+            if platform_filter:
+                sql += f" AND platform_number = '{platform_filter}'"
+                st.info(f"🎯 Filtering for float: {platform_filter}")
+                
+            sql += f" ORDER BY {x_var} LIMIT 1000"
+            
+            st.info("📋 Using fallback SQL:")
+            with st.expander("Generated Fallback SQL", expanded=False):
+                st.code(sql, language='sql')
+            
+            # Execute and plot
+            data = self.execute_query(sql)
+            if not data.empty:
+                st.success(f"✅ Retrieved {len(data)} rows from fallback query")
+                plot_type = self.detect_plot_type(user_request)
+                fig = self.create_simple_plot(data, x_var, y_var, plot_type, user_request)
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
+                    return fig
+            else:
+                st.error("❌ Fallback query returned no data")
         
-        # Execute and plot
-        data = self.execute_query(sql)
-        if not data.empty:
-            plot_type = self.detect_plot_type(user_request)
-            fig = self.create_simple_plot(data, x_var, y_var, plot_type)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-                return fig
+        except Exception as e:
+            st.error(f"❌ Fallback generator failed: {e}")
         
         return None
     
@@ -162,17 +177,19 @@ class ArgoGraphGenerator:
         """Create plot from RAG-generated data"""
         columns = data.columns.tolist()
         
-        # Auto-detect variables from returned data
-        x_var, y_var, color_var = self.analyze_columns(columns)
+        # ✅ FIXED: Pass data to analyze_columns
+        x_var, y_var, color_var = self.analyze_columns(data, columns)
         
         if not x_var:
             st.error("❌ Could not determine variables for plotting")
+            st.info(f"Available columns: {columns}")
             return None
         
+        st.info(f"📊 Plot variables: X={x_var}, Y={y_var}, Color={color_var}")
         return self.create_plot(data, x_var, y_var, color_var, plot_type, original_request)
     
-    def analyze_columns(self, columns: List[str]) -> tuple:
-        """Analyze columns to determine best X, Y, and color variables"""
+    def analyze_columns(self, data: pd.DataFrame, columns: List[str]) -> tuple:
+        """✅ FIXED: Analyze columns to determine best X, Y, and color variables"""
         x_var = y_var = color_var = None
         
         # Priority order for X variable
@@ -193,13 +210,22 @@ class ArgoGraphGenerator:
         if 'platform_number' in columns:
             color_var = 'platform_number'
         
-        # Fallback to first numeric columns
+        # ✅ FIXED: Use passed data parameter instead of undefined 'data'
         if not x_var:
-            numeric_cols = [col for col in columns if data[col].dtype in ['int64', 'float64']]
-            if numeric_cols:
-                x_var = numeric_cols[0]
-                if len(numeric_cols) > 1:
-                    y_var = numeric_cols[1]
+            try:
+                numeric_cols = [col for col in columns if col in data.columns and 
+                              pd.api.types.is_numeric_dtype(data[col])]
+                if numeric_cols:
+                    x_var = numeric_cols[0]
+                    if len(numeric_cols) > 1:
+                        y_var = numeric_cols[1]
+            except Exception as e:
+                st.warning(f"Could not detect numeric columns: {e}")
+                # Final fallback
+                if columns:
+                    x_var = columns[0]
+                    if len(columns) > 1:
+                        y_var = columns[1]
         
         return x_var, y_var, color_var
     
@@ -254,22 +280,36 @@ class ArgoGraphGenerator:
             st.error(f"Plot creation error: {e}")
             return None
     
-    def create_simple_plot(self, data: pd.DataFrame, x_var: str, y_var: str, plot_type: str):
-        """Simple plot creation for fallback"""
-        x_label = self.label_mapping.get(x_var, x_var.title())
-        y_label = self.label_mapping.get(y_var, y_var.title())
-        
-        if plot_type == 'line':
-            fig = px.line(data, x=x_var, y=y_var, 
-                         labels={x_var: x_label, y_var: y_label})
-        else:
-            fig = px.scatter(data, x=x_var, y=y_var,
-                           labels={x_var: x_label, y_var: y_label})
-        
-        if y_var == 'pres':
-            fig.update_yaxes(autorange="reversed")
+    def create_simple_plot(self, data: pd.DataFrame, x_var: str, y_var: str, 
+                          plot_type: str, original_request: str):
+        """✅ ENHANCED: Simple plot creation for fallback"""
+        try:
+            x_label = self.label_mapping.get(x_var, x_var.title())
+            y_label = self.label_mapping.get(y_var, y_var.title())
+            title = self.generate_title(original_request, x_var, y_var)
             
-        return fig
+            if plot_type == 'line':
+                fig = px.line(data, x=x_var, y=y_var, 
+                             title=title,
+                             labels={x_var: x_label, y_var: y_label})
+            elif plot_type == 'histogram':
+                fig = px.histogram(data, x=x_var,
+                                 title=title,
+                                 labels={x_var: x_label})
+            else:
+                fig = px.scatter(data, x=x_var, y=y_var,
+                               title=title,
+                               labels={x_var: x_label, y_var: y_label})
+            
+            # Apply oceanographic conventions
+            if y_var == 'pres':
+                fig.update_yaxes(autorange="reversed")
+                
+            return fig
+            
+        except Exception as e:
+            st.error(f"Simple plot creation error: {e}")
+            return None
     
     def execute_query(self, sql_query: str) -> pd.DataFrame:
         """Execute SQL query and return DataFrame"""

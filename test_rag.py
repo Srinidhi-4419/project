@@ -888,7 +888,7 @@ Please format this data into a clear, informative response for the user."""}
 def interactive_enhanced_chat():
         """🎯 ENHANCED INTERACTIVE CHAT INTERFACE"""
         
-        PERPLEXITY_API_KEY = "UR KEY"
+        PERPLEXITY_API_KEY = "ur key"
         
         print("\n🌊 ENHANCED ARGO RAG SYSTEM - COMPREHENSIVE MODE")
         print("=" * 70)

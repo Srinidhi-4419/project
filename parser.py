@@ -1091,133 +1091,149 @@ class UltimateArgoNetCDFParser:
         finally:
             cursor.close()
 
-
-
     def insert_trajectory_depth_data(self, traj_depth_data):
-            """Insert into trajectory_depth_table - Updated with timestamp cleaning"""
-            if not traj_depth_data:
+        """Insert into trajectory_depth_table - FIXED with deduplication"""
+        if not traj_depth_data:
+            return
+
+        conn = self.connect_postgres()
+        cursor = conn.cursor()
+
+        try:
+            trajectory_depth_values = []
+            seen_keys = set()  # ✅ NEW: Track unique combinations
+            duplicates_skipped = 0
+            
+            for traj_depth in traj_depth_data:
+                # ✅ ENHANCED: Double-clean timestamp values with nanosecond removal
+                juld_val = self.clean_timestamp_value_enhanced(traj_depth.get('juld'))
+                juld_adjusted_val = self.clean_timestamp_value_enhanced(traj_depth.get('juld_adjusted'))
+                
+                # ✅ NEW: Create unique key for deduplication
+                unique_key = (
+                    traj_depth['platform_number'],
+                    traj_depth['cycle_number'], 
+                    traj_depth.get('measurement_code'),
+                    juld_val
+                )
+                
+                # ✅ NEW: Skip if we've already seen this combination
+                if unique_key in seen_keys:
+                    duplicates_skipped += 1
+                    logger.debug(f"🔄 Skipping duplicate: {unique_key}")
+                    continue
+                    
+                seen_keys.add(unique_key)
+                
+                trajectory_depth_values.append((
+                    traj_depth.get('trajectory_id'),
+                    traj_depth['platform_number'],
+                    traj_depth['cycle_number'],
+                    # Measurement identification
+                    traj_depth.get('measurement_code'),
+                    traj_depth.get('measurement_index'),
+                    # Position and time - ENHANCED CLEANING
+                    traj_depth.get('latitude'),
+                    traj_depth.get('longitude'),
+                    juld_val,  # ✅ ENHANCED CLEANED
+                    traj_depth.get('juld_status'),
+                    juld_adjusted_val,  # ✅ ENHANCED CLEANED
+                    traj_depth.get('juld_adjusted_qc'),
+                    traj_depth.get('juld_adjusted_status'),
+                    # Position details
+                    traj_depth.get('position_accuracy'),
+                    traj_depth.get('axes_error_ellipse_major'),
+                    traj_depth.get('axes_error_ellipse_minor'),
+                    traj_depth.get('axes_error_ellipse_angle'),
+                    traj_depth.get('satellite_name'),
+                    traj_depth.get('positioning_system'),
+                    traj_depth.get('position_qc'),
+                    # Measurements
+                    traj_depth.get('pres'),
+                    traj_depth.get('pres_qc'),
+                    traj_depth.get('pres_adjusted'),
+                    traj_depth.get('pres_adjusted_qc'),
+                    traj_depth.get('pres_adjusted_error'),
+                    traj_depth.get('temp'),
+                    traj_depth.get('temp_qc'),
+                    traj_depth.get('temp_adjusted'),
+                    traj_depth.get('temp_adjusted_qc'),
+                    traj_depth.get('temp_adjusted_error'),
+                    traj_depth.get('psal'),
+                    traj_depth.get('psal_qc'),
+                    traj_depth.get('psal_adjusted'),
+                    traj_depth.get('psal_adjusted_qc'),
+                    traj_depth.get('psal_adjusted_error')
+                ))
+
+            # ✅ LOG: Show deduplication results
+            if duplicates_skipped > 0:
+                logger.info(f"🔄 Removed {duplicates_skipped} duplicate rows from batch")
+            
+            logger.info(f"✅ Processing {len(trajectory_depth_values)} unique trajectory depth records")
+
+            if not trajectory_depth_values:
+                logger.warning("⚠️ No unique records to insert after deduplication")
                 return
 
-            conn = self.connect_postgres()
-            cursor = conn.cursor()
+            # ✅ SIMPLIFIED: Use DO NOTHING instead of DO UPDATE to avoid conflicts
+            sql = """
+            INSERT INTO trajectory_depth_table (
+                trajectory_id, platform_number, cycle_number,
+                measurement_code, measurement_index,
+                latitude, longitude, juld, juld_status, juld_adjusted, juld_adjusted_qc, juld_adjusted_status,
+                position_accuracy, axes_error_ellipse_major, axes_error_ellipse_minor, axes_error_ellipse_angle,
+                satellite_name, positioning_system, position_qc,
+                pres, pres_qc, pres_adjusted, pres_adjusted_qc, pres_adjusted_error,
+                temp, temp_qc, temp_adjusted, temp_adjusted_qc, temp_adjusted_error,
+                psal, psal_qc, psal_adjusted, psal_adjusted_qc, psal_adjusted_error
+            ) VALUES %s
+            ON CONFLICT (platform_number, cycle_number, measurement_code, juld) 
+            DO NOTHING
+            """
 
-            try:
-                trajectory_depth_values = []
-                for traj_depth in traj_depth_data:
-                    # Double-clean timestamp values
-                    juld_val = self.clean_timestamp_value(traj_depth.get('juld'))
-                    juld_adjusted_val = self.clean_timestamp_value(traj_depth.get('juld_adjusted'))
-                    
-                    trajectory_depth_values.append((
-                        traj_depth.get('trajectory_id'),
-                        traj_depth['platform_number'],
-                        traj_depth['cycle_number'],
-                        # Measurement identification
-                        traj_depth.get('measurement_code'),
-                        traj_depth.get('measurement_index'),
-                        # Position and time - DOUBLE CLEANED
-                        traj_depth.get('latitude'),
-                        traj_depth.get('longitude'),
-                        juld_val,  # ✅ DOUBLE CLEANED
-                        traj_depth.get('juld_status'),
-                        juld_adjusted_val,  # ✅ DOUBLE CLEANED
-                        traj_depth.get('juld_adjusted_qc'),
-                        traj_depth.get('juld_adjusted_status'),
-                        # Position details
-                        traj_depth.get('position_accuracy'),
-                        traj_depth.get('axes_error_ellipse_major'),
-                        traj_depth.get('axes_error_ellipse_minor'),
-                        traj_depth.get('axes_error_ellipse_angle'),
-                        traj_depth.get('satellite_name'),
-                        traj_depth.get('positioning_system'),
-                        traj_depth.get('position_qc'),
-                        # Measurements
-                        traj_depth.get('pres'),
-                        traj_depth.get('pres_qc'),
-                        traj_depth.get('pres_adjusted'),
-                        traj_depth.get('pres_adjusted_qc'),
-                        traj_depth.get('pres_adjusted_error'),
-                        traj_depth.get('temp'),
-                        traj_depth.get('temp_qc'),
-                        traj_depth.get('temp_adjusted'),
-                        traj_depth.get('temp_adjusted_qc'),
-                        traj_depth.get('temp_adjusted_error'),
-                        traj_depth.get('psal'),
-                        traj_depth.get('psal_qc'),
-                        traj_depth.get('psal_adjusted'),
-                        traj_depth.get('psal_adjusted_qc'),
-                        traj_depth.get('psal_adjusted_error')
-                    ))
+            from psycopg2.extras import execute_values
+            execute_values(cursor, sql, trajectory_depth_values, template=None, page_size=100)
+            conn.commit()
+            
+            inserted_count = len(trajectory_depth_values)
+            logger.info(f"✅ Successfully processed {inserted_count} unique trajectory depth measurements")
+            if duplicates_skipped > 0:
+                logger.info(f"🔄 Skipped {duplicates_skipped} duplicates in current batch")
 
-                # Add unique constraint if not exists (run this once)
-                try:
-                    cursor.execute("""
-                        ALTER TABLE trajectory_depth_table 
-                        ADD CONSTRAINT unique_traj_depth_measurement 
-                        UNIQUE (platform_number, cycle_number, measurement_code, measurement_index)
-                    """)
-                    conn.commit()
-                    logger.info("Added unique constraint to trajectory_depth_table")
-                except Exception:
-                    # Constraint already exists, ignore
-                    conn.rollback()
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"❌ Error inserting trajectory depth data: {e}")
+            raise
+        finally:
+            cursor.close()
+            conn.close()
 
-                sql = """
-                INSERT INTO trajectory_depth_table (
-                    trajectory_id, platform_number, cycle_number,
-                    measurement_code, measurement_index,
-                    latitude, longitude, juld, juld_status, juld_adjusted, juld_adjusted_qc, juld_adjusted_status,
-                    position_accuracy, axes_error_ellipse_major, axes_error_ellipse_minor, axes_error_ellipse_angle,
-                    satellite_name, positioning_system, position_qc,
-                    pres, pres_qc, pres_adjusted, pres_adjusted_qc, pres_adjusted_error,
-                    temp, temp_qc, temp_adjusted, temp_adjusted_qc, temp_adjusted_error,
-                    psal, psal_qc, psal_adjusted, psal_adjusted_qc, psal_adjusted_error
-                ) VALUES %s
-                ON CONFLICT (platform_number, cycle_number, measurement_code, measurement_index) DO UPDATE SET
-                    trajectory_id = EXCLUDED.trajectory_id,
-                    latitude = EXCLUDED.latitude,
-                    longitude = EXCLUDED.longitude,
-                    juld = EXCLUDED.juld,
-                    juld_status = EXCLUDED.juld_status,
-                    juld_adjusted = EXCLUDED.juld_adjusted,
-                    juld_adjusted_qc = EXCLUDED.juld_adjusted_qc,
-                    juld_adjusted_status = EXCLUDED.juld_adjusted_status,
-                    position_accuracy = EXCLUDED.position_accuracy,
-                    axes_error_ellipse_major = EXCLUDED.axes_error_ellipse_major,
-                    axes_error_ellipse_minor = EXCLUDED.axes_error_ellipse_minor,
-                    axes_error_ellipse_angle = EXCLUDED.axes_error_ellipse_angle,
-                    satellite_name = EXCLUDED.satellite_name,
-                    positioning_system = EXCLUDED.positioning_system,
-                    position_qc = EXCLUDED.position_qc,
-                    pres = EXCLUDED.pres,
-                    pres_qc = EXCLUDED.pres_qc,
-                    pres_adjusted = EXCLUDED.pres_adjusted,
-                    pres_adjusted_qc = EXCLUDED.pres_adjusted_qc,
-                    pres_adjusted_error = EXCLUDED.pres_adjusted_error,
-                    temp = EXCLUDED.temp,
-                    temp_qc = EXCLUDED.temp_qc,
-                    temp_adjusted = EXCLUDED.temp_adjusted,
-                    temp_adjusted_qc = EXCLUDED.temp_adjusted_qc,
-                    temp_adjusted_error = EXCLUDED.temp_adjusted_error,
-                    psal = EXCLUDED.psal,
-                    psal_qc = EXCLUDED.psal_qc,
-                    psal_adjusted = EXCLUDED.psal_adjusted,
-                    psal_adjusted_qc = EXCLUDED.psal_adjusted_qc,
-                    psal_adjusted_error = EXCLUDED.psal_adjusted_error,
-                    updated_at = CURRENT_TIMESTAMP
-                """
-
-                from psycopg2.extras import execute_values
-                execute_values(cursor, sql, trajectory_depth_values, template=None, page_size=100)
-                conn.commit()
-                logger.info(f"✅ Updated trajectory_depth_table: {len(trajectory_depth_values)} depth measurements")
-
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"❌ Error inserting trajectory depth data: {e}")
-                raise
-            finally:
-                cursor.close()
+    def clean_timestamp_value_enhanced(self, timestamp_val):
+        """✅ Enhanced timestamp cleaning with nanosecond removal"""
+        if timestamp_val is None:
+            return None
+        
+        try:
+            if isinstance(timestamp_val, str) and timestamp_val.strip() == '':
+                return None
+            
+            # Convert to pandas datetime first
+            if pd.isna(timestamp_val):
+                return None
+                
+            # Convert and remove nanoseconds to avoid warnings
+            dt = pd.to_datetime(timestamp_val)
+            if pd.notna(dt):
+                # ✅ KEY FIX: Remove nanoseconds to prevent warnings
+                # Round to nearest millisecond to avoid precision issues
+                clean_dt = dt.round('ms')
+                return clean_dt
+            return None
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Timestamp conversion failed for {timestamp_val}: {e}")
+            return None
 
 
 

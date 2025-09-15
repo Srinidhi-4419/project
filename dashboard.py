@@ -285,21 +285,56 @@ class EnhancedArgoStreamlitDashboard:
     # In your dashboard, replace the existing graph generator:
     def render_graph_generator(self):
         """Render RAG-enhanced graph generator"""
-        st.markdown("### 📊 RAG-Enhanced Graph Generator")
+        st.markdown("""
+        <div class="graph-container">
+            <h2 style="color: #e67e22; margin-bottom: 1rem;">📊 RAG-Enhanced Graph Generator</h2>
+            <p style="color: #6c757d; margin-bottom: 1.5rem;">
+                Create advanced oceanographic visualizations using natural language with RAG-powered SQL generation
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        user_request = st.text_input(
-            "Describe the graph you want:",
-            placeholder="e.g., scatter plot of temperature vs salinity for float 1900122",
-        )
+        st.markdown("### 💬 Graph Request")
         
-        if st.button("📊 Generate Graph") and user_request:
-            # Use your existing RAG system + new plotting logic
-            rag_graph_generator = EnhancedArgoRAGSystem(
-                rag_system=st.session_state.rag_system,  # Your existing RAG system
-                db_connection_func=self.get_database_connection
+        col1, col2 = st.columns([4, 1])
+        
+        with col1:
+            user_request = st.text_input(
+                "Describe the graph you want:",
+                placeholder="e.g., scatter plot of temperature vs salinity for float 1900122",
+                label_visibility="collapsed"
             )
+        
+        with col2:
+            generate_button = st.button("📊 Generate", use_container_width=True, type="primary")
+        
+        if generate_button and user_request:
+            st.markdown("---")
+            # ✅ CORRECT: Use your existing graph generator
+            self.graph_generator.generate_graph(user_request)
+        
+        # Add examples
+        with st.expander("💡 Example Requests", expanded=False):
+            st.markdown("""
+            **🔬 Oceanographic Analysis:**
+            - `temperature vs depth profile for float 1900122`
+            - `scatter plot of temperature vs salinity colored by depth`
+            - `histogram of salinity measurements`
+            - `line plot of surface temperature over time`
             
-            rag_graph_generator.generate_graph(user_request)
+            **🌊 Advanced Queries:**
+            - `heatmap of temperature by latitude and longitude`
+            - `box plot of temperature distribution by float`
+            - `correlation between temperature and salinity for all floats`
+            - `time series of mixed layer depth variations`
+            
+            **📊 Multi-Variable Analysis:**
+            - `3D plot of temperature, salinity, and depth`
+            - `density plot of T-S relationships`
+            - `seasonal temperature variations by depth`
+            - `quality control analysis of measurement flags`
+            """)
+
 
 
 
@@ -318,7 +353,7 @@ class EnhancedArgoStreamlitDashboard:
         if 'rag_system' not in st.session_state:
             with st.spinner("🔄 Initializing Enhanced RAG System..."):
                 try:
-                    PERPLEXITY_API_KEY = "UR KEY"
+                    PERPLEXITY_API_KEY = "ur key"
                     st.session_state.rag_system = EnhancedArgoRAGSystem(perplexity_api_key=PERPLEXITY_API_KEY)
                     st.success("✅ Enhanced RAG System initialized!")
                 except Exception as e:
