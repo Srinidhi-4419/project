@@ -281,8 +281,6 @@ class EnhancedArgoStreamlitDashboard:
         else:
             st.warning("No position data available for mapping")
 
-    # In your dashboard, replace the existing graph generator:
-    # In your dashboard, replace the existing graph generator:
     def render_graph_generator(self):
         """Render RAG-enhanced graph generator"""
         st.markdown("""
@@ -327,12 +325,6 @@ class EnhancedArgoStreamlitDashboard:
             - `box plot of temperature distribution by float`
             - `correlation between temperature and salinity for all floats`
             - `time series of mixed layer depth variations`
-            
-            **📊 Multi-Variable Analysis:**
-            - `3D plot of temperature, salinity, and depth`
-            - `density plot of T-S relationships`
-            - `seasonal temperature variations by depth`
-            - `quality control analysis of measurement flags`
             """)
 
 
@@ -365,11 +357,11 @@ class EnhancedArgoStreamlitDashboard:
             st.session_state.chat_history = [
                 {
                     'role': 'ai', 
-                    'content': """👋 **Welcome to the Enhanced RAG Assistant!**
+                    'content': """👋 Welcome to the Enhanced RAG Assistant!
 
     I can help you with both technical database queries and general oceanographic knowledge
 
-    📚 **General Knowledge:**
+    📚 General Knowledge:
     • "What is the Argo program?"
     • "How do Argo floats work?"
     • "Tell me about ocean temperature inversions" """
@@ -421,8 +413,8 @@ class EnhancedArgoStreamlitDashboard:
         # Toggle for showing thinking process
         col1, col2 = st.columns([3, 1])
         with col1:
-            show_thinking = st.checkbox("🧠 Show AI thinking process", value=False)
-            st.session_state.show_thinking = show_thinking
+                show_thinking = st.checkbox("🧠 Show AI thinking process", value=False)
+                st.session_state.show_thinking = show_thinking
         
         with col2:
             if st.button("🗑️ Clear Chat"):
@@ -432,26 +424,7 @@ class EnhancedArgoStreamlitDashboard:
                 st.rerun()
 
         # Quick suggestion buttons
-        st.markdown("**Quick Suggestions:**")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            if st.button("🌡️ Temperature Inversions", use_container_width=True):
-                st.session_state.suggested_query = "Find temperature inversions where deeper water is warmer than surface water"
-        
-        with col2:
-            if st.button("🧂 Halocline Detection", use_container_width=True):
-                st.session_state.suggested_query = "Detect haloclines where salinity gradient exceeds 0.2 PSU per 50 meters"
-        
-        with col3:
-            if st.button("🌊 Warm Core Eddies", use_container_width=True):
-                st.session_state.suggested_query = "Locate warm core eddies by finding profiles with temperature >2°C above regional average"
-        
-        with col4:
-            if st.button("❓ About Argo", use_container_width=True):
-                st.session_state.suggested_query = "What is the Argo program and how does it work?"
-
-        # Main input area
+       
         col1, col2 = st.columns([4, 1])
 
         with col1:
@@ -463,9 +436,8 @@ class EnhancedArgoStreamlitDashboard:
                 placeholder="e.g., Find density inversions using sigma-0 calculations where deeper water is less dense than surface water",
                 label_visibility="collapsed"
             )
-            # Clear suggested query after use
             if 'suggested_query' in st.session_state:
-                del st.session_state.suggested_query
+                 del st.session_state.suggested_query
 
         with col2:
             send_button = st.button("🚀 Send", use_container_width=True, type="primary")
@@ -483,8 +455,6 @@ class EnhancedArgoStreamlitDashboard:
                             user_query, 
                             show_details=show_thinking
                         )
-                        
-                        # Store query type for display
                         st.session_state.last_query_type = result.get('query_type', 'unknown')
                         
                         if result['success']:
@@ -752,82 +722,821 @@ class EnhancedArgoStreamlitDashboard:
                     pass
 
     def render_profile_plots(self):
-        """Render temperature/salinity profiles"""
-        st.subheader("📈 Temperature & Salinity Profiles")
+        """Render enhanced temperature/salinity profiles with improved styling and features"""
+        st.subheader("📈 Enhanced Temperature & Salinity Profiles")
 
         floats_df = self.get_database_data("SELECT DISTINCT platform_number FROM float_table ORDER BY platform_number")
 
         if not floats_df.empty:
-            selected_float = st.selectbox("Select Float:", floats_df['platform_number'].tolist())
+            # Float selection with additional info
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                selected_float = st.selectbox("Select Float:", floats_df['platform_number'].tolist())
+            
+            with col2:
+                # Add cycle selection option
+                show_latest = st.checkbox("Show Latest Cycle Only", value=False)
 
             if selected_float:
+                # Get profile count for this float
+                count_query = f"""
+                SELECT COUNT(DISTINCT cycle_number) as profile_count,
+                    MIN(p.juld) as first_date,
+                    MAX(p.juld) as last_date
+                FROM profile_table p
+                WHERE platform_number = '{selected_float}'
+                """
+                count_df = self.get_database_data(count_query)
+                
+                if not count_df.empty:
+                    profile_count = count_df['profile_count'].iloc[0]
+                    first_date = count_df['first_date'].iloc[0]
+                    last_date = count_df['last_date'].iloc[0]
+                    
+                    st.info(f"📊 Float {selected_float}: {profile_count} profiles from {first_date} to {last_date}")
+
+                # Enhanced queries with cycle information
+                if show_latest:
+                    cycle_filter = f"""
+                    AND d.cycle_number = (
+                        SELECT MAX(cycle_number) 
+                        FROM depth_measurements_table 
+                        WHERE platform_number = '{selected_float}'
+                    )
+                    """
+                else:
+                    cycle_filter = ""
+
                 col1, col2 = st.columns(2)
 
                 with col1:
                     temp_query = f"""
-                    SELECT pres, temp, temp_qc 
-                    FROM depth_measurements_table 
-                    WHERE platform_number = '{selected_float}' 
-                    AND temp IS NOT NULL AND temp_qc = '1'
-                    ORDER BY pres
+                    SELECT d.pres, d.temp, d.temp_qc, d.cycle_number,
+                        p.juld, p.latitude, p.longitude
+                    FROM depth_measurements_table d
+                    JOIN profile_table p ON d.platform_number = p.platform_number 
+                                        AND d.cycle_number = p.cycle_number
+                    WHERE d.platform_number = '{selected_float}' 
+                    AND d.temp IS NOT NULL AND d.temp_qc = '1'
+                    {cycle_filter}
+                    ORDER BY d.pres
                     """
                     temp_df = self.get_database_data(temp_query)
 
                     if not temp_df.empty:
-                        fig_temp = px.line(temp_df, x='temp', y='pres', 
-                                         title=f'Temperature Profile - Float {selected_float}',
-                                         labels={'temp': 'Temperature (°C)', 'pres': 'Pressure (dbar)'})
-                        fig_temp.update_yaxes(autorange="reversed")
+                        # Enhanced temperature plot
+                        fig_temp = go.Figure()
+                        
+                        if show_latest:
+                            # Single profile with enhanced styling
+                            fig_temp.add_trace(go.Scatter(
+                                x=temp_df['temp'], 
+                                y=temp_df['pres'],
+                                mode='lines+markers',
+                                name='Temperature',
+                                line=dict(color='crimson', width=3),
+                                marker=dict(
+                                    size=4,
+                                    color='darkred',
+                                    line=dict(width=1, color='white')
+                                ),
+                                hovertemplate='<b>Temperature:</b> %{x:.2f}°C<br>' +
+                                            '<b>Pressure:</b> %{y:.1f} dbar<br>' +
+                                            '<extra></extra>'
+                            ))
+                            
+                            # Add cycle info to title
+                            cycle = temp_df['cycle_number'].iloc[0]
+                            date = temp_df['juld'].iloc[0]
+                            title = f'Temperature Profile - Float {selected_float}<br><sub>Cycle {cycle} - {date}</sub>'
+                        else:
+                            # Multiple profiles with color coding
+                            cycles = temp_df['cycle_number'].unique()
+                            colors = px.colors.qualitative.Set3
+                            
+                            for i, cycle in enumerate(cycles[:10]):  # Limit to 10 cycles for clarity
+                                cycle_data = temp_df[temp_df['cycle_number'] == cycle]
+                                fig_temp.add_trace(go.Scatter(
+                                    x=cycle_data['temp'], 
+                                    y=cycle_data['pres'],
+                                    mode='lines',
+                                    name=f'Cycle {cycle}',
+                                    line=dict(color=colors[i % len(colors)], width=2),
+                                    opacity=0.7,
+                                    hovertemplate=f'<b>Cycle {cycle}</b><br>' +
+                                                '<b>Temperature:</b> %{x:.2f}°C<br>' +
+                                                '<b>Pressure:</b> %{y:.1f} dbar<br>' +
+                                                '<extra></extra>'
+                                ))
+                            
+                            title = f'Temperature Profiles - Float {selected_float}<br><sub>All Available Cycles</sub>'
+
+                        # Enhanced layout for temperature
+                        fig_temp.update_layout(
+                            title=dict(text=title, font=dict(size=16)),
+                            xaxis_title="Temperature (°C)",
+                            yaxis_title="Pressure (dbar)",
+                            yaxis=dict(
+                                autorange="reversed",
+                                showgrid=True,
+                                gridcolor='lightgray',
+                                gridwidth=1
+                            ),
+                            xaxis=dict(
+                                showgrid=True,
+                                gridcolor='lightgray',
+                                gridwidth=1
+                            ),
+                            plot_bgcolor='white',
+                            height=500,
+                            margin=dict(l=50, r=50, t=80, b=50)
+                        )
+                        
+                        # Add depth zone annotations
+                        fig_temp.add_hrect(
+                            y0=0, y1=50, 
+                            fillcolor="lightblue", opacity=0.1,
+                            annotation_text="Mixed Layer", 
+                            annotation_position="top left"
+                        )
+                        fig_temp.add_hrect(
+                            y0=200, y1=1000, 
+                            fillcolor="lightgreen", opacity=0.1,
+                            annotation_text="Thermocline", 
+                            annotation_position="top left"
+                        )
+
                         st.plotly_chart(fig_temp, use_container_width=True)
                     else:
                         st.info("No temperature data available for this float")
 
                 with col2:
                     sal_query = f"""
-                    SELECT pres, psal, psal_qc
-                    FROM depth_measurements_table 
-                    WHERE platform_number = '{selected_float}'
-                    AND psal IS NOT NULL AND psal_qc = '1' 
-                    ORDER BY pres
+                    SELECT d.pres, d.psal, d.psal_qc, d.cycle_number,
+                        p.juld, p.latitude, p.longitude
+                    FROM depth_measurements_table d
+                    JOIN profile_table p ON d.platform_number = p.platform_number 
+                                        AND d.cycle_number = p.cycle_number
+                    WHERE d.platform_number = '{selected_float}'
+                    AND d.psal IS NOT NULL AND d.psal_qc = '1'
+                    {cycle_filter}
+                    ORDER BY d.pres
                     """
                     sal_df = self.get_database_data(sal_query)
 
                     if not sal_df.empty:
-                        fig_sal = px.line(sal_df, x='psal', y='pres',
-                                        title=f'Salinity Profile - Float {selected_float}',
-                                        labels={'psal': 'Salinity (PSU)', 'pres': 'Pressure (dbar)'})
-                        fig_sal.update_yaxes(autorange="reversed")
+                        # Enhanced salinity plot
+                        fig_sal = go.Figure()
+                        
+                        if show_latest:
+                            # Single profile with enhanced styling
+                            fig_sal.add_trace(go.Scatter(
+                                x=sal_df['psal'], 
+                                y=sal_df['pres'],
+                                mode='lines+markers',
+                                name='Salinity',
+                                line=dict(color='navy', width=3),
+                                marker=dict(
+                                    size=4,
+                                    color='darkblue',
+                                    line=dict(width=1, color='white')
+                                ),
+                                hovertemplate='<b>Salinity:</b> %{x:.3f} PSU<br>' +
+                                            '<b>Pressure:</b> %{y:.1f} dbar<br>' +
+                                            '<extra></extra>'
+                            ))
+                            
+                            cycle = sal_df['cycle_number'].iloc[0]
+                            date = sal_df['juld'].iloc[0]
+                            title = f'Salinity Profile - Float {selected_float}<br><sub>Cycle {cycle} - {date}</sub>'
+                        else:
+                            # Multiple profiles
+                            cycles = sal_df['cycle_number'].unique()
+                            colors = px.colors.qualitative.Set3
+                            
+                            for i, cycle in enumerate(cycles[:10]):
+                                cycle_data = sal_df[sal_df['cycle_number'] == cycle]
+                                fig_sal.add_trace(go.Scatter(
+                                    x=cycle_data['psal'], 
+                                    y=cycle_data['pres'],
+                                    mode='lines',
+                                    name=f'Cycle {cycle}',
+                                    line=dict(color=colors[i % len(colors)], width=2),
+                                    opacity=0.7,
+                                    hovertemplate=f'<b>Cycle {cycle}</b><br>' +
+                                                '<b>Salinity:</b> %{x:.3f} PSU<br>' +
+                                                '<b>Pressure:</b> %{y:.1f} dbar<br>' +
+                                                '<extra></extra>'
+                                ))
+                            
+                            title = f'Salinity Profiles - Float {selected_float}<br><sub>All Available Cycles</sub>'
+
+                        # Enhanced layout for salinity
+                        fig_sal.update_layout(
+                            title=dict(text=title, font=dict(size=16)),
+                            xaxis_title="Salinity (PSU)",
+                            yaxis_title="Pressure (dbar)",
+                            yaxis=dict(
+                                autorange="reversed",
+                                showgrid=True,
+                                gridcolor='lightgray',
+                                gridwidth=1
+                            ),
+                            xaxis=dict(
+                                showgrid=True,
+                                gridcolor='lightgray',
+                                gridwidth=1
+                            ),
+                            plot_bgcolor='white',
+                            height=500,
+                            margin=dict(l=50, r=50, t=80, b=50)
+                        )
+                        
+                        # Add depth zone annotations
+                        fig_sal.add_hrect(
+                            y0=0, y1=50, 
+                            fillcolor="lightblue", opacity=0.1,
+                            annotation_text="Mixed Layer", 
+                            annotation_position="top left"
+                        )
+                        fig_sal.add_hrect(
+                            y0=200, y1=1000, 
+                            fillcolor="lightgreen", opacity=0.1,
+                            annotation_text="Thermocline", 
+                            annotation_position="top left"
+                        )
+
                         st.plotly_chart(fig_sal, use_container_width=True)
                     else:
                         st.info("No salinity data available for this float")
+
+                # Add T-S Diagram option
+                if not temp_df.empty and not sal_df.empty:
+                    if st.checkbox("📈 Show Temperature-Salinity Diagram"):
+                        # Merge temperature and salinity data
+                        ts_data = pd.merge(
+                            temp_df[['pres', 'temp', 'cycle_number']], 
+                            sal_df[['pres', 'psal', 'cycle_number']], 
+                            on=['pres', 'cycle_number'], 
+                            how='inner'
+                        )
+                        
+                        if not ts_data.empty:
+                            fig_ts = px.scatter(
+                                ts_data, 
+                                x='psal', y='temp', 
+                                color='pres',
+                                title=f'T-S Diagram - Float {selected_float}',
+                                labels={
+                                    'psal': 'Salinity (PSU)', 
+                                    'temp': 'Temperature (°C)',
+                                    'pres': 'Pressure (dbar)'
+                                },
+                                color_continuous_scale='viridis'
+                            )
+                            fig_ts.update_traces(marker=dict(size=6, line=dict(width=1, color='white')))
+                            fig_ts.update_layout(
+                                height=400,
+                                plot_bgcolor='white',
+                                coloraxis_colorbar_title="Pressure (dbar)"
+                            )
+                            st.plotly_chart(fig_ts, use_container_width=True)
+
         else:
             st.warning("No floats found")
 
-    def render_time_series(self):
-        """Render time series plots"""
-        st.subheader("📊 Time Series Analysis")
+    def render_temperature_series(self, time_grouping, show_trend, date_range):
+            """Enhanced temperature time series"""
+            
+            # Build time grouping clause
+            if time_grouping == "Daily":
+                time_clause = "p.juld::date"
+                date_format = "date"
+            elif time_grouping == "Weekly": 
+                time_clause = "DATE_TRUNC('week', p.juld)::date"
+                date_format = "week"
+            elif time_grouping == "Monthly":
+                time_clause = "DATE_TRUNC('month', p.juld)::date"
+                date_format = "month"
+            else:  # Seasonal
+                time_clause = "DATE_TRUNC('quarter', p.juld)::date"
+                date_format = "season"
+            
+            # Build date filter - FIXED LOGIC
+            date_filter = ""
+            if date_range:
+                # Handle different types that st.date_input can return
+                if isinstance(date_range, tuple) and len(date_range) == 2:
+                    # Range selection (start_date, end_date)
+                    start_date, end_date = date_range
+                    if start_date and end_date:
+                        date_filter = f"AND p.juld::date BETWEEN '{start_date}' AND '{end_date}'"
+                elif hasattr(date_range, '__iter__') and not isinstance(date_range, str):
+                    # List-like object (could be from multi-select)
+                    try:
+                        date_list = list(date_range)
+                        if len(date_list) == 2:
+                            start_date, end_date = date_list[0], date_list[1]
+                            if start_date and end_date:
+                                date_filter = f"AND p.juld::date BETWEEN '{start_date}' AND '{end_date}'"
+                        elif len(date_list) == 1 and date_list[0]:
+                            # Single date selected
+                            date_filter = f"AND p.juld::date = '{date_list[0]}'"
+                    except (TypeError, IndexError):
+                        pass
+                else:
+                    # Single date object
+                    try:
+                        if date_range:
+                            date_filter = f"AND p.juld::date = '{date_range}'"
+                    except:
+                        pass
+            
+            # Rest of your function remains the same...
+            surface_query = f"""
+            SELECT 
+                {time_clause} as time_period,
+                AVG(d.temp) as avg_surface_temp,
+                STDDEV(d.temp) as temp_std,
+                COUNT(*) as measurement_count,
+                COUNT(DISTINCT d.platform_number) as float_count,
+                MIN(d.temp) as min_temp,
+                MAX(d.temp) as max_temp
+            FROM depth_measurements_table d
+            JOIN profile_table p ON d.platform_number = p.platform_number AND d.cycle_number = p.cycle_number
+            WHERE d.pres < 10 AND d.temp IS NOT NULL AND d.temp_qc = '1'
+            {date_filter}
+            GROUP BY {time_clause}
+            ORDER BY time_period
+            """
+            ts_df = self.get_database_data(surface_query)
+            
+            if not ts_df.empty:
+                # Create enhanced plot
+                fig = go.Figure()
+                
+                # Main temperature line
+                fig.add_trace(go.Scatter(
+                    x=ts_df['time_period'], 
+                    y=ts_df['avg_surface_temp'],
+                    mode='lines+markers',
+                    name='Average Temperature',
+                    line=dict(color='crimson', width=3),
+                    marker=dict(size=6, color='darkred'),
+                    hovertemplate='<b>%{x}</b><br>' +
+                                'Temperature: %{y:.2f}°C<br>' +
+                                '<extra></extra>'
+                ))
+                
+                # Add uncertainty bands if standard deviation available
+                if 'temp_std' in ts_df.columns and ts_df['temp_std'].notna().any():
+                    upper_bound = ts_df['avg_surface_temp'] + ts_df['temp_std']
+                    lower_bound = ts_df['avg_surface_temp'] - ts_df['temp_std']
+                    
+                    fig.add_trace(go.Scatter(
+                        x=ts_df['time_period'],
+                        y=upper_bound,
+                        fill=None,
+                        mode='lines',
+                        line_color='rgba(0,0,0,0)',
+                        showlegend=False
+                    ))
+                    
+                    fig.add_trace(go.Scatter(
+                        x=ts_df['time_period'],
+                        y=lower_bound,
+                        fill='tonexty',
+                        mode='lines',
+                        line_color='rgba(0,0,0,0)',
+                        name='±1 Std Dev',
+                        fillcolor='rgba(220,20,60,0.2)'
+                    ))
+                import numpy as np
+                # Add trend line if requested
+                if show_trend and len(ts_df) > 2:
+                    from scipy import stats
+                    x_numeric = np.arange(len(ts_df))
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(x_numeric, ts_df['avg_surface_temp'])
+                    
+                    trend_line = slope * x_numeric + intercept
+                    fig.add_trace(go.Scatter(
+                        x=ts_df['time_period'],
+                        y=trend_line,
+                        mode='lines',
+                        name=f'Trend (R²={r_value**2:.3f})',
+                        line=dict(dash='dash', color='navy', width=2),
+                        hovertemplate=f'Trend: {slope*365:.3f}°C/year<br>' +
+                                    f'R²: {r_value**2:.3f}<br>' +
+                                    '<extra></extra>'
+                    ))
+                
+                # Enhanced layout
+                fig.update_layout(
+                    title=dict(
+                        text=f'Surface Temperature Time Series ({time_grouping})',
+                        font=dict(size=18)
+                    ),
+                    xaxis_title=f"Time ({date_format.title()})",
+                    yaxis_title="Temperature (°C)",
+                    hovermode='x unified',
+                    plot_bgcolor='white',
+                    height=500,
+                    showlegend=True,
+                    legend=dict(
+                        yanchor="top",
+                        y=0.99,
+                        xanchor="left", 
+                        x=0.01
+                    )
+                )
+                
+                # Add grid
+                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Display statistics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Average Temperature", f"{ts_df['avg_surface_temp'].mean():.2f}°C")
+                with col2:
+                    st.metric("Temperature Range", f"{ts_df['max_temp'].max() - ts_df['min_temp'].min():.2f}°C")
+                with col3:
+                    st.metric("Total Measurements", f"{ts_df['measurement_count'].sum():,}")
+                with col4:
+                    st.metric("Active Floats", f"{ts_df['float_count'].max()}")
+                    
+            else:
+                st.info("No temperature time series data available for the selected parameters")
 
-        surface_query = """
+    
+    def render_combined_series(self, time_grouping, show_trend, date_range):
+        """Combined temperature and salinity time series"""
+        
+        # Similar time grouping logic as above
+        if time_grouping == "Monthly":
+            time_clause = "DATE_TRUNC('month', p.juld)::date"
+        else:
+            time_clause = "p.juld::date"
+        
+        date_filter = ""
+        if date_range and len(date_range) == 2:
+            date_filter = f"AND p.juld::date BETWEEN '{date_range[0]}' AND '{date_range[1]}'"
+        
+        combined_query = f"""
         SELECT 
-            p.juld::date as date,
-            AVG(d.temp) as avg_surface_temp,
+            {time_clause} as time_period,
+            AVG(d.temp) as avg_temp,
+            AVG(d.psal) as avg_salinity,
+            COUNT(*) as measurement_count
+        FROM depth_measurements_table d
+        JOIN profile_table p ON d.platform_number = p.platform_number AND d.cycle_number = p.cycle_number  
+        WHERE d.pres < 10 AND d.temp IS NOT NULL AND d.psal IS NOT NULL 
+        AND d.temp_qc = '1' AND d.psal_qc = '1'
+        {date_filter}
+        GROUP BY {time_clause}
+        ORDER BY time_period
+        """
+        
+        ts_df = self.get_database_data(combined_query)
+        
+        if not ts_df.empty:
+            # Create subplot with secondary y-axis
+            from plotly.subplots import make_subplots
+            
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # Temperature trace
+            fig.add_trace(
+                go.Scatter(
+                    x=ts_df['time_period'], 
+                    y=ts_df['avg_temp'],
+                    mode='lines+markers',
+                    name='Temperature',
+                    line=dict(color='red', width=3),
+                    marker=dict(size=5)
+                ),
+                secondary_y=False,
+            )
+            
+            # Salinity trace
+            fig.add_trace(
+                go.Scatter(
+                    x=ts_df['time_period'], 
+                    y=ts_df['avg_salinity'],
+                    mode='lines+markers',
+                    name='Salinity',
+                    line=dict(color='blue', width=3),
+                    marker=dict(size=5)
+                ),
+                secondary_y=True,
+            )
+            
+            # Update axes labels
+            fig.update_xaxes(title_text="Time")
+            fig.update_yaxes(title_text="Temperature (°C)", secondary_y=False, title_font_color="red")
+            fig.update_yaxes(title_text="Salinity (PSU)", secondary_y=True, title_font_color="blue")
+            
+            fig.update_layout(
+                title="Combined Temperature & Salinity Time Series",
+                height=500,
+                hovermode='x unified'
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+        else:
+            st.info("No combined time series data available")
+
+
+    def render_depth_comparison(self, time_grouping, show_trend, date_range):
+        """Multi-depth temperature comparison"""
+        
+        time_clause = "DATE_TRUNC('month', p.juld)::date" if time_grouping == "Monthly" else "p.juld::date"
+        
+        date_filter = ""
+        if date_range and len(date_range) == 2:
+            date_filter = f"AND p.juld::date BETWEEN '{date_range[0]}' AND '{date_range[1]}'"
+        
+        depth_query = f"""
+        SELECT 
+            {time_clause} as time_period,
+            AVG(CASE WHEN d.pres < 10 THEN d.temp END) as surface_temp,
+            AVG(CASE WHEN d.pres BETWEEN 50 AND 100 THEN d.temp END) as subsurface_temp,
+            AVG(CASE WHEN d.pres BETWEEN 200 AND 300 THEN d.temp END) as deep_temp,
             COUNT(*) as measurement_count
         FROM depth_measurements_table d
         JOIN profile_table p ON d.platform_number = p.platform_number AND d.cycle_number = p.cycle_number
-        WHERE d.pres < 10 AND d.temp IS NOT NULL AND d.temp_qc = '1'
-        GROUP BY p.juld::date
-        ORDER BY date
+        WHERE d.temp IS NOT NULL AND d.temp_qc = '1'
+        {date_filter}
+        GROUP BY {time_clause}
+        HAVING AVG(CASE WHEN d.pres < 10 THEN d.temp END) IS NOT NULL
+        ORDER BY time_period
         """
-
-        ts_df = self.get_database_data(surface_query)
-
+        
+        ts_df = self.get_database_data(depth_query)
+        
         if not ts_df.empty:
-            fig_ts = px.line(ts_df, x='date', y='avg_surface_temp',
-                           title='Surface Temperature Time Series',
-                           labels={'avg_surface_temp': 'Temperature (°C)', 'date': 'Date'})
-            st.plotly_chart(fig_ts, use_container_width=True)
+            fig = go.Figure()
+            
+            # Different depth layers
+            if ts_df['surface_temp'].notna().any():
+                fig.add_trace(go.Scatter(
+                    x=ts_df['time_period'], y=ts_df['surface_temp'],
+                    mode='lines+markers', name='Surface (0-10m)',
+                    line=dict(color='red', width=2)
+                ))
+            
+            if ts_df['subsurface_temp'].notna().any():
+                fig.add_trace(go.Scatter(
+                    x=ts_df['time_period'], y=ts_df['subsurface_temp'],
+                    mode='lines+markers', name='Subsurface (50-100m)',
+                    line=dict(color='orange', width=2)
+                ))
+            
+            if ts_df['deep_temp'].notna().any():
+                fig.add_trace(go.Scatter(
+                    x=ts_df['time_period'], y=ts_df['deep_temp'],
+                    mode='lines+markers', name='Deep (200-300m)',
+                    line=dict(color='blue', width=2)
+                ))
+            
+            fig.update_layout(
+                title="Temperature Comparison Across Depths",
+                xaxis_title="Time",
+                yaxis_title="Temperature (°C)",
+                height=500,
+                hovermode='x unified'
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
         else:
-            st.info("No time series data available")
+            st.info("No multi-depth time series data available")
+    def render_time_series(self):
+        """Render enhanced time series analysis with multiple parameters and options"""
+        st.subheader("📊 Enhanced Time Series Analysis")
+        
+        # Time series options
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            analysis_type = st.selectbox(
+                "Analysis Type:",
+                ["Surface Temperature", "Surface Salinity", "Both Parameters", "Multi-Depth Analysis"]
+            )
+        
+        with col2:
+            time_grouping = st.selectbox(
+                "Time Resolution:",
+                ["Daily", "Weekly", "Monthly", "Seasonal"]
+            )
+        
+        with col3:
+            show_trend = st.checkbox("Show Trend Line", value=True)
+        
+        # Date range selector
+        date_range = st.date_input(
+            "Select Date Range (optional):",
+            value=None,
+            help="Leave empty to show all available data"
+        )
+        
+        # Build dynamic queries based on selections
+        if analysis_type == "Surface Temperature":
+            st.markdown("### 🌡️ Surface Temperature Trends")
+            self.render_temperature_series( time_grouping, show_trend, date_range)
+            
+        elif analysis_type == "Surface Salinity":
+            st.markdown("### 🧂 Surface Salinity Trends") 
+            self.render_salinity_series( time_grouping, show_trend, date_range)
+            
+        elif analysis_type == "Both Parameters":
+            st.markdown("### 🌊 Combined Temperature & Salinity Analysis")
+            self.render_combined_series( time_grouping, show_trend, date_range)
+            
+        elif analysis_type == "Multi-Depth Analysis":
+            st.markdown("### 📏 Multi-Depth Temperature Analysis")
+            self.render_depth_comparison( time_grouping, show_trend, date_range)
+
+    def render_salinity_series(self, time_grouping, show_trend, date_range):
+        """Enhanced salinity time series"""
+        
+        # Build time grouping clause
+        if time_grouping == "Daily":
+            time_clause = "p.juld::date"
+            date_format = "date"
+        elif time_grouping == "Weekly": 
+            time_clause = "DATE_TRUNC('week', p.juld)::date"
+            date_format = "week"
+        elif time_grouping == "Monthly":
+            time_clause = "DATE_TRUNC('month', p.juld)::date"
+            date_format = "month"
+        else:  # Seasonal
+            time_clause = "DATE_TRUNC('quarter', p.juld)::date"
+            date_format = "season"
+        
+        # Build date filter with proper handling
+        date_filter = ""
+        if date_range is not None:
+            try:
+                if hasattr(date_range, '__len__') and len(date_range) == 2:
+                    start_date, end_date = date_range
+                    if start_date and end_date:
+                        date_filter = f"AND p.juld::date BETWEEN '{start_date}' AND '{end_date}'"
+                else:
+                    # Single date
+                    date_filter = f"AND p.juld::date = '{date_range}'"
+            except (TypeError, AttributeError):
+                # Skip date filtering if there's an issue
+                pass
+        
+        surface_query = f"""
+        SELECT 
+            {time_clause} as time_period,
+            AVG(d.psal) as avg_surface_salinity,
+            STDDEV(d.psal) as salinity_std,
+            COUNT(*) as measurement_count,
+            COUNT(DISTINCT d.platform_number) as float_count,
+            MIN(d.psal) as min_salinity,
+            MAX(d.psal) as max_salinity
+        FROM depth_measurements_table d
+        JOIN profile_table p ON d.platform_number = p.platform_number AND d.cycle_number = p.cycle_number
+        WHERE d.pres < 10 AND d.psal IS NOT NULL AND d.psal_qc = '1'
+        {date_filter}
+        GROUP BY {time_clause}
+        ORDER BY time_period
+        """
+        
+        ts_df = self.get_database_data(surface_query)
+        
+        if not ts_df.empty:
+            # Create enhanced plot
+            fig = go.Figure()
+            
+            # Main salinity line
+            fig.add_trace(go.Scatter(
+                x=ts_df['time_period'], 
+                y=ts_df['avg_surface_salinity'],
+                mode='lines+markers',
+                name='Average Salinity',
+                line=dict(color='navy', width=3),
+                marker=dict(size=6, color='darkblue'),
+                hovertemplate='<b>%{x}</b><br>' +
+                            'Salinity: %{y:.3f} PSU<br>' +
+                            '<extra></extra>'
+            ))
+            
+            # Add uncertainty bands if standard deviation available
+            if 'salinity_std' in ts_df.columns and ts_df['salinity_std'].notna().any():
+                upper_bound = ts_df['avg_surface_salinity'] + ts_df['salinity_std']
+                lower_bound = ts_df['avg_surface_salinity'] - ts_df['salinity_std']
+                
+                fig.add_trace(go.Scatter(
+                    x=ts_df['time_period'],
+                    y=upper_bound,
+                    fill=None,
+                    mode='lines',
+                    line_color='rgba(0,0,0,0)',
+                    showlegend=False
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=ts_df['time_period'],
+                    y=lower_bound,
+                    fill='tonexty',
+                    mode='lines',
+                    line_color='rgba(0,0,0,0)',
+                    name='±1 Std Dev',
+                    fillcolor='rgba(0,0,139,0.2)'
+                ))
+            
+            # Add trend line if requested
+            if show_trend and len(ts_df) > 2:
+                try:
+                    from scipy import stats
+                    import numpy as np
+                    
+                    x_numeric = np.arange(len(ts_df))
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(x_numeric, ts_df['avg_surface_salinity'])
+                    
+                    trend_line = slope * x_numeric + intercept
+                    fig.add_trace(go.Scatter(
+                        x=ts_df['time_period'],
+                        y=trend_line,
+                        mode='lines',
+                        name=f'Trend (R²={r_value**2:.3f})',
+                        line=dict(dash='dash', color='darkred', width=2),
+                        hovertemplate=f'Trend: {slope*365:.4f} PSU/year<br>' +
+                                    f'R²: {r_value**2:.3f}<br>' +
+                                    '<extra></extra>'
+                    ))
+                except ImportError:
+                    st.warning("scipy not available for trend analysis")
+            
+            # Enhanced layout
+            fig.update_layout(
+                title=dict(
+                    text=f'Surface Salinity Time Series ({time_grouping})',
+                    font=dict(size=18)
+                ),
+                xaxis_title=f"Time ({date_format.title()})",
+                yaxis_title="Salinity (PSU)",
+                hovermode='x unified',
+                plot_bgcolor='white',
+                height=500,
+                showlegend=True,
+                legend=dict(
+                    yanchor="top",
+                    y=0.99,
+                    xanchor="left", 
+                    x=0.01
+                )
+            )
+            
+            # Add grid
+            fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Display statistics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Average Salinity", f"{ts_df['avg_surface_salinity'].mean():.3f} PSU")
+            with col2:
+                st.metric("Salinity Range", f"{ts_df['max_salinity'].max() - ts_df['min_salinity'].min():.3f} PSU")
+            with col3:
+                st.metric("Total Measurements", f"{ts_df['measurement_count'].sum():,}")
+            with col4:
+                st.metric("Active Floats", f"{ts_df['float_count'].max()}")
+                
+            # Additional salinity-specific insights
+            st.markdown("### 📊 Salinity Analysis")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                # Salinity variability
+                salinity_cv = (ts_df['avg_surface_salinity'].std() / ts_df['avg_surface_salinity'].mean()) * 100
+                st.info(f"**Coefficient of Variation:** {salinity_cv:.2f}%")
+                
+            with col2:
+                # Salinity classification (rough estimates)
+                avg_salinity = ts_df['avg_surface_salinity'].mean()
+                if avg_salinity < 32:
+                    water_type = "Low Salinity (Freshwater Influence)"
+                elif avg_salinity < 35:
+                    water_type = "Normal Ocean Water"
+                elif avg_salinity < 37:
+                    water_type = "High Salinity (Evaporation Zone)"
+                else:
+                    water_type = "Very High Salinity (Hypersaline)"
+                
+                st.info(f"**Water Classification:** {water_type}")
+                
+        else:
+            st.info("No salinity time series data available for the selected parameters")
 
     def render_sidebar(self):
         """Render simplified sidebar"""
@@ -856,29 +1565,48 @@ class EnhancedArgoStreamlitDashboard:
             st.sidebar.info("🔄 Generating comprehensive export...")
 
             comprehensive_query = """
-            SELECT 
+                        SELECT 
                 f.platform_number,
-                COALESCE(f.project_name, 'Unknown') as project_name,
-                COALESCE(m.platform_type, 'Unknown') as platform_type,
-                COALESCE(m.platform_maker, 'Unknown') as platform_maker,
+                COALESCE(f.project_name, 'Unknown') AS project_name,
+                COALESCE(m.platform_type, 'Unknown') AS platform_type,
+                COALESCE(m.platform_maker, 'Unknown') AS platform_maker,
                 p.cycle_number,
-                p.juld as profile_date,
+                p.juld AS profile_date,
                 p.latitude,
                 p.longitude,
-                COUNT(d.measurement_id) as total_measurements,
-                ROUND(AVG(d.temp), 2) as avg_temperature,
-                ROUND(AVG(d.psal), 2) as avg_salinity,
-                ROUND(MIN(d.pres), 2) as min_pressure,
-                ROUND(MAX(d.pres), 2) as max_pressure
+                COUNT(d.measurement_id) AS total_measurements,
+                ROUND(AVG(d.temp), 2) AS avg_temperature,
+                ROUND(STDDEV(d.temp), 2) AS std_temperature,
+                ROUND(MIN(d.temp), 2) AS min_temperature,
+                ROUND(MAX(d.temp), 2) AS max_temperature,
+                ROUND(AVG(d.psal), 2) AS avg_salinity,
+                ROUND(STDDEV(d.psal), 2) AS std_salinity,
+                ROUND(MIN(d.psal), 2) AS min_salinity,
+                ROUND(MAX(d.psal), 2) AS max_salinity,
+                ROUND(MIN(d.pres), 2) AS min_pressure,
+                ROUND(MAX(d.pres), 2) AS max_pressure,
+                COUNT(CASE WHEN d.temp_qc = '1' THEN 1 END) AS temp_qc_pass_count,
+                COUNT(CASE WHEN d.psal_qc = '1' THEN 1 END) AS psal_qc_pass_count,
+                ROUND(AVG(d.doxy), 2) AS avg_oxygen,
+                ROUND(AVG(d.nitrate), 2) AS avg_nitrate,
+                ROUND(AVG(d.ph_in_situ_total), 2) AS avg_ph
             FROM profile_table p
             LEFT JOIN float_table f ON p.platform_number = f.platform_number
             LEFT JOIN meta_table m ON p.platform_number = m.platform_number
-            LEFT JOIN depth_measurements_table d ON p.platform_number = d.platform_number AND p.cycle_number = d.cycle_number
+            LEFT JOIN depth_measurements_table d 
+                ON p.platform_number = d.platform_number 
+                AND p.cycle_number = d.cycle_number
             GROUP BY 
-                f.platform_number, f.project_name,
-                m.platform_type, m.platform_maker,
-                p.cycle_number, p.juld, p.latitude, p.longitude
-            ORDER BY f.platform_number, p.cycle_number
+                f.platform_number,
+                f.project_name,
+                m.platform_type,
+                m.platform_maker,
+                p.cycle_number,
+                p.juld,
+                p.latitude,
+                p.longitude
+            ORDER BY f.platform_number, p.cycle_number;
+
             """
 
             comprehensive_df = self.get_database_data(comprehensive_query)

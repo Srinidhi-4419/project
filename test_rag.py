@@ -518,7 +518,7 @@ Provide a comprehensive, detailed answer based on the knowledge base above."""
             "model": "sonar",
             "messages": messages,
             "temperature": 0.0,
-            "max_tokens": 1500  # ✅ INCREASED from 1200 to handle complex queries
+            "max_tokens": 2000  # ✅ INCREASED from 1200 to handle complex queries
         }
 
         headers = {

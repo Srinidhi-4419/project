@@ -3,7 +3,7 @@
     {
       "type": "table_schema",
       "table_name": "float_table",
-      "row_count": 2,
+      "row_count": 16,
       "columns": [
         "platform_number",
         "project_name",
@@ -27,7 +27,7 @@
     {
       "type": "table_schema",
       "table_name": "meta_table",
-      "row_count": 2,
+      "row_count": 16,
       "columns": [
         "meta_id",
         "platform_number",
@@ -94,7 +94,7 @@
     {
       "type": "table_schema",
       "table_name": "profile_table",
-      "row_count": 207,
+      "row_count": 1721,
       "columns": [
         "profile_id",
         "platform_number",
@@ -130,7 +130,7 @@
     {
       "type": "table_schema",
       "table_name": "depth_measurements_table",
-      "row_count": 16350,
+      "row_count": 93220,
       "columns": [
         "measurement_id",
         "profile_id",
@@ -190,7 +190,7 @@
     {
       "type": "table_schema",
       "table_name": "trajectory_table",
-      "row_count": 468,
+      "row_count": 1889,
       "columns": [
         "trajectory_id",
         "platform_number",
@@ -243,7 +243,7 @@
     {
       "type": "table_schema",
       "table_name": "sensor_table",
-      "row_count": 5,
+      "row_count": 44,
       "columns": [
         "sensor_id",
         "platform_number",
@@ -271,20 +271,34 @@
       "type": "data_pattern",
       "pattern_name": "platform_distribution",
       "floats": [
+        "2900228",
+        "2901348",
+        "2900352",
         "13859",
-        "1900122"
+        "2900226",
+        "2900230",
+        "2900229",
+        "1902675",
+        "2900256",
+        "1900122",
+        "2900232",
+        "2900233",
+        "2900235",
+        "1902767",
+        "1902785",
+        "2900234"
       ]
     },
     {
       "type": "data_pattern",
       "pattern_name": "geographic_coverage",
       "lat_range": [
-        -6.875,
-        5.928
+        -65.204,
+        20.682
       ],
       "lon_range": [
-        -33.677,
-        86.874
+        -179.303,
+        179.698
       ]
     },
     {
@@ -403,7 +417,7 @@
   "embedding_model": "all-MiniLM-L6-v2",
   "dimension": 384,
   "total_documents": 14,
-  "created_at": "2025-09-15T14:49:23.556476",
+  "created_at": "2025-09-19T08:49:37.351359",
   "database_tables": [
     "float_table",
     "meta_table",
