@@ -46,12 +46,14 @@ class EnhancedArgoStreamlitDashboard:
         # Enhanced Custom CSS
         st.markdown("""
         <style>
+        
         .main-header {
             font-size: 3.5rem;
             color: #1f77b4;
             text-align: center;
             margin-bottom: 2rem;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+            
         }
         .metric-container {
             background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
@@ -329,14 +331,14 @@ class EnhancedArgoStreamlitDashboard:
 
 
 
-
     def render_enhanced_ai_chat(self):
-        """Render enhanced AI chat interface with RAG integration"""
+        """Render enhanced AI chat interface with RAG integration and CSV download for large results"""
         st.markdown("""
         <div class="chat-container">
             <h2 style="color: #1f77b4; margin-bottom: 1rem;">🤖 Enhanced RAG AI Assistant</h2>
             <p style="color: #6c757d; margin-bottom: 1.5rem;">
                 The AI uses advanced thinking-based analysis and generates sophisticated SQL queries.
+                Large results are automatically saved as downloadable CSV files.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -345,7 +347,7 @@ class EnhancedArgoStreamlitDashboard:
         if 'rag_system' not in st.session_state:
             with st.spinner("🔄 Initializing Enhanced RAG System..."):
                 try:
-                    PERPLEXITY_API_KEY = "ur key"
+                    PERPLEXITY_API_KEY = "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"
                     st.session_state.rag_system = EnhancedArgoRAGSystem(perplexity_api_key=PERPLEXITY_API_KEY)
                     st.success("✅ Enhanced RAG System initialized!")
                 except Exception as e:
@@ -364,9 +366,17 @@ class EnhancedArgoStreamlitDashboard:
     📚 General Knowledge:
     • "What is the Argo program?"
     • "How do Argo floats work?"
-    • "Tell me about ocean temperature inversions" """
+    • "Tell me about ocean temperature inversions"
+
+    💾 Large Results:
+    • Queries with many results will be saved as downloadable CSV files
+    • You'll see a preview of the data with download options"""
                 }
             ]
+
+        # Initialize CSV data storage
+        if 'csv_data' not in st.session_state:
+            st.session_state.csv_data = {}
 
         # Query classification indicator
         if 'last_query_type' in st.session_state:
@@ -407,24 +417,56 @@ class EnhancedArgoStreamlitDashboard:
                     if 'processing_info' in message:
                         st.caption(f"📊 {message['processing_info']}")
 
+                    # ✅ NEW: Show CSV download button if available
+                    if 'csv_key' in message and message['csv_key'] in st.session_state.csv_data:
+                        csv_data = st.session_state.csv_data[message['csv_key']]
+                        df = csv_data['dataframe']
+                        
+                        with st.expander("📊 Data Results & Download", expanded=True):
+                            st.info(f"📈 **Found {len(df)} records** - Showing first 100 rows")
+                            
+                            # Show data preview (first 100 rows)
+                            st.dataframe(df.head(100), use_container_width=True)
+                            
+                            # Create downloadable CSV
+                            csv = df.to_csv(index=False)
+                            
+                            # Download button
+                            st.download_button(
+                                label=f"💾 Download Full Dataset ({len(df)} rows) as CSV",
+                                data=csv,
+                                file_name=csv_data['filename'],
+                                mime="text/csv",
+                                key=f"download_{message['csv_key']}"
+                            )
+                            
+                            # Show data summary
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total Rows", len(df))
+                            with col2:
+                                st.metric("Columns", len(df.columns))
+                            with col3:
+                                st.metric("File Size", f"{len(csv) / 1024:.1f} KB")
+
         # Enhanced input section
         st.markdown("### 💬 Ask Your Question")
 
         # Toggle for showing thinking process
         col1, col2 = st.columns([3, 1])
         with col1:
-                show_thinking = st.checkbox("🧠 Show AI thinking process", value=False)
-                st.session_state.show_thinking = show_thinking
+            show_thinking = st.checkbox("🧠 Show AI thinking process", value=False)
+            st.session_state.show_thinking = show_thinking
         
         with col2:
             if st.button("🗑️ Clear Chat"):
                 st.session_state.chat_history = st.session_state.chat_history[:1]  # Keep welcome message
+                st.session_state.csv_data = {}  # Clear CSV data
                 if 'last_query_type' in st.session_state:
                     del st.session_state.last_query_type
                 st.rerun()
 
         # Quick suggestion buttons
-       
         col1, col2 = st.columns([4, 1])
 
         with col1:
@@ -437,7 +479,7 @@ class EnhancedArgoStreamlitDashboard:
                 label_visibility="collapsed"
             )
             if 'suggested_query' in st.session_state:
-                 del st.session_state.suggested_query
+                del st.session_state.suggested_query
 
         with col2:
             send_button = st.button("🚀 Send", use_container_width=True, type="primary")
@@ -458,11 +500,58 @@ class EnhancedArgoStreamlitDashboard:
                         st.session_state.last_query_type = result.get('query_type', 'unknown')
                         
                         if result['success']:
-                            # Format response using RAG system
-                            formatted_response = st.session_state.rag_system.format_detailed_response(
-                                result, 
-                                result['query_type']
-                            )
+                            # ✅ ENHANCED: Handle large datasets with CSV download
+                            csv_key = None
+                            csv_info = None
+                            
+                            if result['query_type'] == 'technical' and 'data' in result and result['data']:
+                                row_count = result.get('row_count', 0)
+                                
+                                # If we have more than 50 rows, prepare CSV download
+                                if row_count > 50:
+                                    # Create DataFrame from results
+                                    df = pd.DataFrame(result['data'], columns=result.get('columns', []))
+                                    
+                                    # Generate unique key for this CSV
+                                    import hashlib
+                                    import time
+                                    csv_key = hashlib.md5(f"{user_query}_{time.time()}".encode()).hexdigest()[:8]
+                                    
+                                    # Store CSV data
+                                    filename = f"argo_data_{csv_key}_{int(time.time())}.csv"
+                                    st.session_state.csv_data[csv_key] = {
+                                        'dataframe': df,
+                                        'filename': filename,
+                                        'query': user_query,
+                                        'timestamp': time.time()
+                                    }
+                                    
+                                    # Update result to indicate CSV availability
+                                    result['csv_key'] = csv_key
+                                    
+                                    # Format response to mention CSV download
+                                    formatted_response = st.session_state.rag_system.format_detailed_response(
+                                        result, 
+                                        result['query_type']
+                                    )
+                                    
+                                    # Add CSV download info to response
+                                    formatted_response += f"\n\n📊 **Large Dataset Detected**: {row_count} records found\n"
+                                    formatted_response += f"💾 **Download Available**: Full dataset saved as CSV file\n"
+                                    formatted_response += f"👆 **Click 'Data Results & Download' above to access the data**"
+                                    
+                                else:
+                                    # Small dataset - use normal formatting
+                                    formatted_response = st.session_state.rag_system.format_detailed_response(
+                                        result, 
+                                        result['query_type']
+                                    )
+                            else:
+                                # General knowledge or no data
+                                formatted_response = st.session_state.rag_system.format_detailed_response(
+                                    result, 
+                                    result['query_type']
+                                )
                             
                             # Create AI message
                             ai_message = {
@@ -473,6 +562,10 @@ class EnhancedArgoStreamlitDashboard:
                             # Add SQL query if technical query
                             if result['query_type'] == 'technical' and 'sql_query' in result:
                                 ai_message['sql'] = result['sql_query']
+                            
+                            # Add CSV key if available
+                            if csv_key:
+                                ai_message['csv_key'] = csv_key
                             
                             # Add thinking process if available and requested
                             if show_thinking and 'thinking_process' in result:
@@ -492,7 +585,10 @@ class EnhancedArgoStreamlitDashboard:
                             
                             # Show success metrics
                             if result['query_type'] == 'technical':
-                                st.success(f"✅ Query processed successfully! Found {result.get('row_count', 0)} results using {context_docs} context documents.")
+                                if row_count > 50:
+                                    st.success(f"✅ Query processed successfully! Found {row_count} results - CSV download available above.")
+                                else:
+                                    st.success(f"✅ Query processed successfully! Found {result.get('row_count', 0)} results using {context_docs} context documents.")
                             else:
                                 st.success(f"✅ Knowledge query processed successfully using {method}!")
                             
@@ -534,6 +630,10 @@ class EnhancedArgoStreamlitDashboard:
                     st.info("📡 Perplexity API: Connected")
                     st.info("🗄️ Database: Connected")
                     st.info("🧠 Thinking Mode: Enabled")
+                    
+                    # Show CSV storage info
+                    csv_count = len(st.session_state.csv_data)
+                    st.info(f"💾 CSV Storage: {csv_count} datasets cached")
                 else:
                     st.error("❌ Enhanced RAG System: Inactive")
 

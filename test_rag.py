@@ -564,8 +564,7 @@ Provide a comprehensive, detailed answer based on the knowledge base above."""
                 'error': str(e),
                 'retrieved_context': relevant_docs
             }
-
-    
+        
     def _extract_sql(self, response: str) -> str:
         """✅ FIXED: Extract clean SQL from LLM response"""
         
@@ -888,7 +887,7 @@ Please format this data into a clear, informative response for the user."""}
 def interactive_enhanced_chat():
         """🎯 ENHANCED INTERACTIVE CHAT INTERFACE"""
         
-        PERPLEXITY_API_KEY = "ur key"
+        PERPLEXITY_API_KEY = "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"
         
         print("\n🌊 ENHANCED ARGO RAG SYSTEM - COMPREHENSIVE MODE")
         print("=" * 70)
